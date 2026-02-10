@@ -1,0 +1,183 @@
+{
+    "version": 1,
+    "description": "Field definitions for receipt extraction - universal patterns that work across countries",
+    "fields": {
+        "total_amount": {
+            "aliases": [
+                "TOTAL",
+                "GRAND TOTAL",
+                "AMOUNT DUE",
+                "BALANCE DUE",
+                "NET TOTAL",
+                "PAYABLE",
+                "TO PAY",
+                "AMOUNT PAYABLE"
+            ],
+            "patterns": [
+                "Final payable amount including all taxes",
+                "Usually the maximum numeric value on receipt",
+                "Appears at bottom of receipt, often in bold or larger font"
+            ],
+            "extraction_hints": [
+                "Look for keywords TOTAL, GRAND TOTAL near bottom",
+                "Often preceded by currency symbol",
+                "May follow tax lines"
+            ],
+            "confidence_boost": 0.1
+        },
+        "subtotal": {
+            "aliases": [
+                "SUBTOTAL",
+                "SUB-TOTAL",
+                "SUB TOTAL",
+                "NET AMOUNT",
+                "GOODS TOTAL",
+                "ITEMS TOTAL"
+            ],
+            "patterns": [
+                "Sum before taxes",
+                "Appears before tax lines",
+                "Less than or equal to total"
+            ],
+            "extraction_hints": [
+                "Look for SUBTOTAL keyword",
+                "Should precede tax amounts",
+                "Sum of line items should approximate this"
+            ],
+            "confidence_boost": 0.05
+        },
+        "invoice_number": {
+            "aliases": [
+                "INVOICE NO",
+                "INVOICE #",
+                "BILL NO",
+                "BILL #",
+                "RECEIPT NO",
+                "RECEIPT #",
+                "TXN ID",
+                "TRANSACTION ID",
+                "ORDER ID",
+                "REF NO",
+                "REFERENCE"
+            ],
+            "patterns": [
+                "Unique identifier for the transaction",
+                "Usually alphanumeric",
+                "Appears near top of receipt"
+            ],
+            "extraction_hints": [
+                "Look near vendor name or date",
+                "May contain date components",
+                "Usually 6-20 characters"
+            ],
+            "confidence_boost": 0.05
+        },
+        "invoice_date": {
+            "aliases": [
+                "DATE",
+                "TXN DATE",
+                "TRANSACTION DATE",
+                "BILL DATE",
+                "INVOICE DATE",
+                "PURCHASE DATE"
+            ],
+            "patterns": [
+                "Date of transaction",
+                "Various formats: DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD"
+            ],
+            "extraction_hints": [
+                "Look near invoice number",
+                "May include time component",
+                "Usually near top of receipt"
+            ],
+            "confidence_boost": 0.05
+        },
+        "vendor_name": {
+            "aliases": [
+                "STORE",
+                "SHOP",
+                "MERCHANT",
+                "SELLER",
+                "COMPANY",
+                "BUSINESS"
+            ],
+            "patterns": [
+                "Business name issuing the receipt",
+                "Usually at the very top",
+                "May be in larger font or logo area"
+            ],
+            "extraction_hints": [
+                "First non-address text at top",
+                "May have TM, Ltd, LLC, Inc suffix",
+                "Often followed by address"
+            ],
+            "confidence_boost": 0.1
+        },
+        "tax_amount": {
+            "aliases": [
+                "TAX",
+                "VAT",
+                "GST",
+                "CGST",
+                "SGST",
+                "IGST",
+                "SALES TAX",
+                "SERVICE TAX"
+            ],
+            "patterns": [
+                "Tax calculated on subtotal",
+                "May be split into multiple components",
+                "Percentage often shown"
+            ],
+            "extraction_hints": [
+                "Look for TAX, GST, VAT keywords",
+                "Usually between subtotal and total",
+                "May show percentage in parentheses"
+            ],
+            "confidence_boost": 0.05
+        },
+        "payment_method": {
+            "aliases": [
+                "PAYMENT",
+                "PAID BY",
+                "PAYMENT MODE",
+                "PAYMENT TYPE",
+                "CASH",
+                "CARD",
+                "UPI",
+                "CREDIT",
+                "DEBIT"
+            ],
+            "patterns": [
+                "How payment was made",
+                "May include card last 4 digits",
+                "For UPI may show transaction ID"
+            ],
+            "extraction_hints": [
+                "Look near bottom after total",
+                "May show CASH, CARD, UPI keywords",
+                "Card payments may show XXXX format"
+            ],
+            "confidence_boost": 0.03
+        },
+        "change_amount": {
+            "aliases": [
+                "CHANGE",
+                "CHANGE DUE",
+                "BALANCE",
+                "RETURN"
+            ],
+            "patterns": [
+                "Cash returned to customer",
+                "Only for cash payments",
+                "Cash tendered minus total"
+            ],
+            "extraction_hints": [
+                "Only present for cash transactions",
+                "Look after CASH TENDERED line",
+                "Should be less than cash given"
+            ],
+            "confidence_boost": 0.02
+        }
+    }
+}

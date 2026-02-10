@@ -1,0 +1,198 @@
+{
+    "version": 1,
+    "description": "Country-specific tax rules and patterns for receipt extraction",
+    "countries": {
+        "IN": {
+            "name": "India",
+            "currency": "₹",
+            "currency_codes": [
+                "INR",
+                "Rs",
+                "Rs."
+            ],
+            "tax_system": "GST",
+            "tax_rules": {
+                "description": "Goods and Services Tax with central and state components",
+                "components": {
+                    "CGST": "Central GST - goes to central government",
+                    "SGST": "State GST - goes to state government",
+                    "IGST": "Integrated GST - for inter-state transactions (CGST + SGST combined)",
+                    "UTGST": "Union Territory GST - for union territories"
+                },
+                "patterns": [
+                    "CGST and SGST appear together for intra-state transactions",
+                    "IGST alone for inter-state transactions",
+                    "CGST + SGST = IGST rate",
+                    "Common rates: 5%, 12%, 18%, 28%"
+                ],
+                "calculation_hints": [
+                    "If CGST 9% + SGST 9%, total GST is 18%",
+                    "IGST 18% = CGST 9% + SGST 9%",
+                    "Tax amount = (Item price × Rate) / 100"
+                ]
+            },
+            "common_vendors": [
+                "Reliance Fresh",
+                "Big Bazaar",
+                "DMart",
+                "More Supermarket",
+                "Spencer's",
+                "Easyday"
+            ],
+            "date_formats": [
+                "DD/MM/YYYY",
+                "DD-MM-YYYY",
+                "DD.MM.YYYY"
+            ]
+        },
+        "UK": {
+            "name": "United Kingdom",
+            "currency": "£",
+            "currency_codes": [
+                "GBP",
+                "£"
+            ],
+            "tax_system": "VAT",
+            "tax_rules": {
+                "description": "Value Added Tax with multiple rates",
+                "rates": {
+                    "standard": 20,
+                    "reduced": 5,
+                    "zero": 0
+                },
+                "patterns": [
+                    "VAT codes often shown as single letters (A, B, T, etc.)",
+                    "Standard rate 20% for most goods",
+                    "Reduced rate 5% for domestic fuel, children's car seats",
+                    "Zero rate for most food, books, children's clothing"
+                ],
+                "calculation_hints": [
+                    "VAT = Net Price × 0.20 for standard rate",
+                    "Gross = Net × 1.20 for standard rate",
+                    "VAT number format: GB 123 4567 89"
+                ]
+            },
+            "common_vendors": [
+                "Tesco",
+                "Sainsbury's",
+                "ASDA",
+                "Morrisons",
+                "Waitrose",
+                "M&S",
+                "Lidl",
+                "Aldi"
+            ],
+            "date_formats": [
+                "DD/MM/YYYY",
+                "DD/MM/YY"
+            ]
+        },
+        "US": {
+            "name": "United States",
+            "currency": "$",
+            "currency_codes": [
+                "USD",
+                "$"
+            ],
+            "tax_system": "Sales Tax",
+            "tax_rules": {
+                "description": "Sales tax varies by state and locality",
+                "patterns": [
+                    "Tax rate varies by state (0% to 10%+)",
+                    "May have separate state and local tax lines",
+                    "Some items exempt (groceries in some states)",
+                    "Tax usually shown as single line"
+                ],
+                "calculation_hints": [
+                    "Tax = Subtotal × State Rate",
+                    "Total = Subtotal + Tax",
+                    "No nationwide VAT/GST system"
+                ]
+            },
+            "common_vendors": [
+                "Walmart",
+                "Target",
+                "Costco",
+                "Kroger",
+                "Whole Foods",
+                "Trader Joe's"
+            ],
+            "date_formats": [
+                "MM/DD/YYYY",
+                "MM/DD/YY"
+            ]
+        },
+        "EU": {
+            "name": "European Union",
+            "currency": "€",
+            "currency_codes": [
+                "EUR",
+                "€"
+            ],
+            "tax_system": "VAT",
+            "tax_rules": {
+                "description": "Value Added Tax with country-specific rates",
+                "patterns": [
+                    "VAT rates vary by country (15-27%)",
+                    "Reduced rates for essentials",
+                    "VAT often included in displayed price",
+                    "Different terminology: TVA (France), MwSt (Germany), BTW (Netherlands), IVA (Spain/Italy)"
+                ],
+                "calculation_hints": [
+                    "Price usually includes VAT",
+                    "Net = Gross / (1 + VAT rate)",
+                    "VAT = Gross - Net"
+                ]
+            },
+            "common_vendors": [
+                "Carrefour",
+                "Lidl",
+                "Aldi",
+                "REWE",
+                "Edeka",
+                "Mercadona"
+            ],
+            "date_formats": [
+                "DD.MM.YYYY",
+                "DD/MM/YYYY"
+            ]
+        },
+        "MY": {
+            "name": "Malaysia",
+            "currency": "RM",
+            "currency_codes": [
+                "MYR",
+                "RM"
+            ],
+            "tax_system": "SST",
+            "tax_rules": {
+                "description": "Sales and Services Tax",
+                "rates": {
+                    "sales_tax": 10,
+                    "service_tax": 6
+                },
+                "patterns": [
+                    "Sales Tax on manufactured goods (10%)",
+                    "Service Tax on specific services (6%)",
+                    "Not all items are taxable",
+                    "Previously had GST (abolished 2018)"
+                ],
+                "calculation_hints": [
+                    "Service tax = Service value × 0.06",
+                    "Sales tax = Sales value × 0.10"
+                ]
+            },
+            "common_vendors": [
+                "Giant",
+                "Tesco Malaysia",
+                "AEON",
+                "Jaya Grocer",
+                "Village Grocer"
+            ],
+            "date_formats": [
+                "DD/MM/YYYY",
+                "DD-MM-YYYY"
+            ]
+        }
+    }
+}

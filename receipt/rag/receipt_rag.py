@@ -1,0 +1,704 @@
+#!/usr/bin/env python3
+"""
+Receipt RAG Pipeline - Simplified Demo-Based Implementation
+
+Based on the RAG demo implementation, this module provides:
+- Receipt knowledge base loading from text files
+- Document chunking and embedding
+- Similarity search for relevant receipt patterns
+- Phi-3 LLM generation for receipt field extraction
+
+This replaces the complex enterprise RAG system with a clean, maintainable approach.
+"""
+
+import os
+import json
+import logging
+import shutil
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Any, Optional, List
+from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
+
+# Lazy imports for optional dependencies
+_langchain_imports = None
+
+
+def _get_langchain():
+    """Lazy import LangChain components."""
+    global _langchain_imports
+    if _langchain_imports is None:
+        try:
+            from langchain_community.document_loaders import TextLoader, DirectoryLoader
+            from langchain_text_splitters import RecursiveCharacterTextSplitter
+            from langchain_community.embeddings import HuggingFaceEmbeddings
+            from langchain_community.vectorstores import Chroma
+            from langchain_core.prompts import PromptTemplate
+            
+            _langchain_imports = {
+                'TextLoader': TextLoader,
+                'DirectoryLoader': DirectoryLoader,
+                'RecursiveCharacterTextSplitter': RecursiveCharacterTextSplitter,
+                'HuggingFaceEmbeddings': HuggingFaceEmbeddings,
+                'Chroma': Chroma,
+                'PromptTemplate': PromptTemplate
+            }
+            logger.info("LangChain components imported successfully")
+        except ImportError as e:
+            logger.error(f"LangChain not installed: {e}")
+            logger.error("Run: pip install langchain-community langchain-core langchain-text-splitters")
+            raise
+    return _langchain_imports
+
+
+@dataclass
+class RAGResult:
+    """Result from RAG pipeline."""
+    extracted_data: Dict[str, Any]
+    confidence: float
+    context_used: str
+    raw_llm_response: str
+    relevance_scores: List[float]
+
+
+class ReceiptRAGPipeline:
+    """
+    Simplified RAG pipeline for receipt extraction.
+    
+    Based on RAG demo: Load  Split  Embed  Retrieve  Generate
+    """
+    
+    def __init__(
+        self,
+        knowledge_base_dir: Optional[str] = None,
+        ollama_url: str = "http://localhost:11434",
+        model_name: str = "phi3.5",
+        chunk_size: int = 1000,
+        chunk_overlap: int = 40,
+        embedding_model: str = "all-MiniLM-L6-v2"
+    ):
+        """
+        Initialize RAG pipeline.
+        
+        Args:
+            knowledge_base_dir: Directory containing receipt example text files
+            ollama_url: URL of Ollama service (default: http://localhost:11434)
+            model_name: Ollama model name (default: phi3.5)
+            chunk_size: Size of text chunks for splitting
+            chunk_overlap: Overlap between chunks
+            embedding_model: HuggingFace embedding model name
+        """
+        # Setup paths
+        if knowledge_base_dir is None:
+            knowledge_base_dir = Path(__file__).parent / "knowledge_base" / "receipts"
+        self.knowledge_base_dir = Path(knowledge_base_dir)
+        self.knowledge_base_dir.mkdir(parents=True, exist_ok=True)
+        
+        # ChromaDB persistence
+        self.persist_dir = Path(__file__).parent / "chroma_db"
+        self.persist_dir.mkdir(parents=True, exist_ok=True)
+        
+        self.metadata_file = self.persist_dir / "metadata.json"
+        
+        # Configuration
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        self.embedding_model_name = embedding_model
+        
+        # Ollama configuration
+        self.ollama_url = ollama_url
+        self.model_name = model_name
+        
+        # Initialize components (lazy)
+        self.vector_db = None
+        self.embeddings = None
+        self.initialized = False
+        
+        logger.info(f" Receipt RAG Pipeline initialized")
+        logger.info(f"   Knowledge base: {self.knowledge_base_dir}")
+        logger.info(f"   Vector DB: {self.persist_dir}")
+        logger.info(f"   Ollama: {self.ollama_url}, Model: {self.model_name}")
+    
+    def _initialize(self):
+        """Initialize the RAG components (called on first use)."""
+        if self.initialized:
+            return
+        
+        logger.info(" Initializing RAG components...")
+        
+        # Import LangChain
+        lc = _get_langchain()
+        
+        # Initialize embeddings
+        logger.info(f" Loading embedding model: {self.embedding_model_name}")
+        self.embeddings = lc['HuggingFaceEmbeddings'](model_name=self.embedding_model_name)
+        logger.info(" Embeddings loaded")
+        
+        # Initialize or load vector database
+        self._setup_vector_db(lc)
+        
+        # Initialize LLM (lazy - only when needed for generation)
+        # self.llm will be initialized in _generate_answer()
+        
+        self.initialized = True
+        logger.info("RAG pipeline ready")
+    
+    def _setup_vector_db(self, lc):
+        """Setup vector database with smart caching (like demo)."""
+        # Check if knowledge base files exist
+        txt_files = list(self.knowledge_base_dir.glob("*.txt"))
+        if not txt_files:
+            logger.warning(f" No .txt files found in {self.knowledge_base_dir}")
+            logger.warning("   Creating empty vector database")
+            self.vector_db = lc['Chroma'](
+                persist_directory=str(self.persist_dir),
+                embedding_function=self.embeddings
+            )
+            return
+        
+        # Get latest modification time of all source files
+        latest_mtime = max(f.stat().st_mtime for f in txt_files)
+        
+        # Check if rebuild is needed
+        needs_rebuild = True
+        if self.metadata_file.exists():
+            with open(self.metadata_file, 'r') as f:
+                metadata = json.load(f)
+                last_mtime = metadata.get('last_modified', 0)
+                
+                stored_chunk_size = metadata.get('chunk_size', 0)
+                
+                if latest_mtime == last_mtime and stored_chunk_size == self.chunk_size:
+                    needs_rebuild = False
+                    logger.info(" Knowledge base unchanged, loading existing database")
+                else:
+                    logger.info(" Knowledge base changed, rebuilding database")
+                    if self.persist_dir.exists():
+                        # Clean up old database
+                        for item in self.persist_dir.iterdir():
+                            if item.is_file() and item.name != 'metadata.json':
+                                item.unlink()
+                            elif item.is_dir():
+                                shutil.rmtree(item)
+        
+        if needs_rebuild:
+            logger.info(" Loading receipt knowledge base...")
+            
+            # Load all text files
+            loader = lc['DirectoryLoader'](
+                str(self.knowledge_base_dir),
+                glob="*.txt",
+                loader_cls=lc['TextLoader']
+            )
+            docs = loader.load()
+            logger.info(f" Loaded {len(docs)} document(s)")
+            
+            # Split documents
+            logger.info(" Splitting documents into chunks...")
+            splitter = lc['RecursiveCharacterTextSplitter'](
+                chunk_size=self.chunk_size,
+                chunk_overlap=self.chunk_overlap
+            )
+            chunks = splitter.split_documents(docs)
+            logger.info(f" Created {len(chunks)} chunks")
+            
+            # Create vector database
+            logger.info(" Creating embeddings (this may take a moment)...")
+            self.vector_db = lc['Chroma'].from_documents(
+                documents=chunks,
+                embedding=self.embeddings,
+                persist_directory=str(self.persist_dir)
+            )
+            
+            # Save metadata
+            with open(self.metadata_file, 'w') as f:
+                json.dump({
+                    'last_modified': latest_mtime,
+                    'knowledge_base_dir': str(self.knowledge_base_dir),
+                    'embedded_at': datetime.now().isoformat(),
+                    'chunk_count': len(chunks),
+                    'document_count': len(docs),
+                    'chunk_size': self.chunk_size,
+                    'chunk_overlap': self.chunk_overlap
+                }, f, indent=2)
+            
+            logger.info(f" Vector DB ready with {self.vector_db._collection.count()} chunks")
+        else:
+            # Load existing database
+            self.vector_db = lc['Chroma'](
+                persist_directory=str(self.persist_dir),
+                embedding_function=self.embeddings
+            )
+            logger.info(f" Loaded existing vector DB with {self.vector_db._collection.count()} chunks")
+    
+    def clean_database(self):
+        """Clear the vector database and metadata to force a rebuild."""
+        logger.info(" Cleaning vector database...")
+        if self.persist_dir.exists():
+            for item in self.persist_dir.iterdir():
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+            logger.info(" Database directory cleared")
+        
+        self.initialized = False
+        self.vector_db = None
+        logger.info(" Database state reset. It will be rebuilt on next use.")
+    
+    def retrieve_context(
+        self,
+        ocr_text: str,
+        k: int = 3
+    ) -> Dict[str, Any]:
+        """
+        Retrieve relevant context from knowledge base.
+        
+        Args:
+            ocr_text: OCR text from receipt
+            k: Number of relevant chunks to retrieve
+            
+        Returns:
+            Dictionary with retrieved documents and metadata
+        """
+        self._initialize()
+        
+        if self.vector_db is None or self.vector_db._collection.count() == 0:
+            logger.warning(" Vector database is empty, no context available")
+            return {
+                'documents': [],
+                'context': '',
+                'relevance_scores': []
+            }
+        
+        logger.info(f" Retrieving relevant context (k={k})...")
+        logger.info(f"   Query text: {ocr_text[:200]}..." if len(ocr_text) > 200 else f"   Query text: {ocr_text}")
+        
+        # Similarity search
+        retrieved_docs = self.vector_db.similarity_search_with_score(ocr_text, k=k)
+        
+        logger.info(f" Retrieved {len(retrieved_docs)} relevant chunks")
+        
+        documents = []
+        context_parts = []
+        relevance_scores = []
+        
+        for i, (doc, score) in enumerate(retrieved_docs):
+            distance = score
+            relevance = 1.0 - distance  # Convert distance to relevance
+            
+            logger.info(f"    Chunk #{i+1}:")
+            logger.info(f"       Distance: {distance:.4f}")
+            logger.info(f"       Relevance: {relevance:.4f}")
+            logger.info(f"       Content: {doc.page_content[:100]}...")
+            
+            documents.append({
+                'content': doc.page_content,
+                'metadata': doc.metadata,
+                'relevance': relevance
+            })
+            context_parts.append(doc.page_content)
+            relevance_scores.append(relevance)
+        
+        # Combine context
+        context = "\n\n".join(context_parts)
+        
+        return {
+            'documents': documents,
+            'context': context,
+            'relevance_scores': relevance_scores
+        }
+    
+    def _clean_json_output(self, text: str) -> str:
+        """Clean LLM output to ensure valid JSON."""
+        import re
+        
+        # Remove markdown code blocks
+        text = text.strip()
+        if "```" in text:
+            # Extract content between first and last ``` calls
+            # Try to find a block starting with ```json first
+            json_match = re.search(r'```json\s*(.*?)\s*```', text, re.DOTALL)
+            if json_match:
+                text = json_match.group(1)
+            else:
+                # Fallback to any code block
+                parts = text.split("```")
+                for part in parts:
+                    if "{" in part and "}" in part:
+                        text = part
+                        break
+        
+        # Remove any leading/trailing text outside the first { and last }
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end != -1:
+            text = text[start:end+1]
+        
+        # Remove inline comments (// ...) and block comments (/* ... */)
+        text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
+        text = re.sub(r'(?<!:)\/\/.*', '', text)
+        
+        # Remove trailing commas before closing braces/brackets
+        text = re.sub(r',(\s*[]}])', r'\1', text)
+        
+        # Fix missing quotes on keys (basic case)
+        text = re.sub(r'(\s*)(\w+)(\s*):', r'\1"\2"\3:', text)
+        
+        # Ensure single quotes are replaced by double quotes in JSON
+        # Be careful not to replace quotes inside strings
+        # This is a very simple attempt, json_repair handles this better
+        
+        return text.strip()
+
+    def _normalize_extracted_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize extracted fields (dates, amounts, etc.)."""
+        normalized = {}
+        for key, value in data.items():
+            # Already normalized or confidence field
+            if key.endswith("_confidence"):
+                normalized[key] = value
+                continue
+                
+            # Normalize dates
+            if key in ['date', 'receipt_date']:
+                normalized[key] = self._normalize_date(value)
+            # Normalize amounts
+            elif any(k in key for k in ['amount', 'price', 'total', 'subtotal', 'tax', 'vat']):
+                normalized[key] = self._normalize_amount(value)
+            else:
+                normalized[key] = value
+        return normalized
+
+    def _normalize_date(self, date_str: Any) -> Optional[str]:
+        """Normalize date strings to YYYY-MM-DD."""
+        if not isinstance(date_str, str) or not date_str:
+            return date_str
+            
+        import re
+        from dateutil import parser
+        
+        # Remove common receipt artifacts
+        date_str = re.sub(r'[^\w\s\-/.]', '', date_str).strip()
+        
+        try:
+            # Try parsing with dateutil
+            dt = parser.parse(date_str, fuzzy=True, dayfirst=True)
+            return dt.strftime('%Y-%m-%d')
+        except:
+            return date_str
+
+    def _normalize_amount(self, amount: Any) -> Any:
+        """Normalize amount to float."""
+        if amount is None or isinstance(amount, (int, float)):
+            return amount
+            
+        if isinstance(amount, list):
+            return [self._normalize_amount(item) for item in amount]
+            
+        if isinstance(amount, dict):
+            return {k: self._normalize_amount(v) for k, v in amount.items()}
+            
+        if not isinstance(amount, str):
+            return amount
+            
+        # Strip currency symbols and whitespace
+        import re
+        cleaned = re.sub(r'[^\d.]', '', amount.replace(',', '.'))
+        try:
+            return float(cleaned)
+        except:
+            return amount
+
+    def _generate_answer_batch(
+        self,
+        ocr_text: str,
+        context: str,
+        prompt_type: int
+    ) -> str:
+        """
+        Generate extraction results for a specific subset of fields.
+        
+        Args:
+            ocr_text: OCR text from receipt
+            context: Retrieved context from knowledge base
+            prompt_type: 1 for basic fields, 2 for complex fields
+        """
+        import requests
+        
+        lc = _get_langchain()
+        
+        if prompt_type == 1:
+            fields_desc = """
+            - date
+            - vat_amount
+            - net_amount (total excluding VAT)
+            - total_amount
+            - vat_details (list of: rate, amount)
+            - receipt_number
+            - vat_number
+            - payment_method (cash/card/etc.)
+            - card_type (visa/mastercard/etc.)
+            """
+        else:
+            fields_desc = """
+            - supplier_name
+            - address
+            - items (list of: name, quantity, unit_price, total_price)
+            """
+
+        template = f"""You are a professional receipt data extraction expert. 
+Your task is to extract structured information from the <target_receipt> provided below.
+
+<context>
+EXAMPLES OF SIMILAR RECEIPTS (FOR PATTERN REFERENCE ONLY):
+{{context}}
+</context>
+
+<target_receipt>
+ACTUAL OCR TEXT TO EXTRACT FROM:
+{{receipt_text}}
+</target_receipt>
+
+INSTRUCTIONS:
+1. **Source Control**: Only extract data that appears explicitly in the <target_receipt> section. Do NOT use data from the <context> examples.
+2. **Missing Data**: If a field is not present in the <target_receipt>, return `null` for that field. Do not hallucinate or guess.
+3. **Format**: Output your results as a SINGLE valid JSON object.
+4. **Confidence**: For every field, include a corresponding `[field_name]_confidence` score between 0.0 and 1.0.
+5. **Normalization**:
+   - Dates: Convert to YYYY-MM-DD format if possible.
+   - Amounts: Use numeric floats (e.g., 12.50). Remove currency symbols.
+   - Text: Preserve original casing from the receipt.
+
+FIELDS TO EXTRACT:
+{fields_desc}
+
+Output ONLY the JSON object. No preamble, no markdown formatting, no explanations.
+"""
+        
+        prompt_template = lc['PromptTemplate'](
+            template=template,
+            input_variables=["context", "receipt_text"]
+        )
+        
+        final_prompt = prompt_template.format(
+            context=context if context.strip() else "No relevant context found.",
+            receipt_text=ocr_text
+        )
+        
+        logger.info(f" Generating batch {prompt_type} with Ollama ({self.model_name})...")
+        
+        try:
+            response = requests.post(
+                f"{self.ollama_url}/api/generate",
+                json={
+                    "model": self.model_name,
+                    "prompt": final_prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.1,
+                        "num_predict": 1024
+                    }
+                },
+                timeout=600
+            )
+            response.raise_for_status()
+            llm_output = response.json().get('response', '')
+            return self._clean_json_output(llm_output)
+        except Exception as e:
+            logger.error(f" Batch {prompt_type} generation failed: {e}")
+            raise
+
+    def extract_from_ocr(
+        self,
+        ocr_text: str,
+        retrieve_k: int = 3
+    ) -> RAGResult:
+        """
+        Main extraction method: Retrieve context + Generate extraction.
+        
+        Args:
+            ocr_text: OCR text from receipt
+            retrieve_k: Number of context chunks to retrieve
+            
+        Returns:
+            RAGResult with extracted data and metadata
+        """
+        self._initialize()
+        
+        logger.info("=" * 70)
+        logger.info(" RECEIPT RAG EXTRACTION STARTED")
+        logger.info("=" * 70)
+        
+        # Step 1: Retrieve context
+        retrieval = self.retrieve_context(ocr_text, k=retrieve_k)
+        context = retrieval['context']
+        relevance_scores = retrieval['relevance_scores']
+        
+        # Step 2: Generate extractions (Two-Prompt Strategy)
+        batch1_raw = self._generate_answer_batch(ocr_text, context, prompt_type=1)
+        batch2_raw = self._generate_answer_batch(ocr_text, context, prompt_type=2)
+        
+        # Merging logic
+        data1 = self._parse_llm_response(batch1_raw)
+        data2 = self._parse_llm_response(batch2_raw)
+        
+        # Normalize each batch
+        data1 = self._normalize_extracted_data(data1)
+        data2 = self._normalize_extracted_data(data2)
+        
+        # Merge results, but keep track of failures
+        merged_data = {}
+        parsing_failures = []
+        
+        for data, batch_num in [(data1, 1), (data2, 2)]:
+            if "_parsing_error" in data:
+                parsing_failures.append(f"Prompt {batch_num} failed to parse")
+                continue
+            merged_data.update(data)
+        
+        # Step 4: Fallback Strategy & Overall Confidence
+        # Check field-wise confidence
+        fallbacks = []
+        for key, value in list(merged_data.items()):
+            if key.endswith("_confidence"):
+                field_name = key.replace("_confidence", "")
+                
+                # Skip non-numeric confidence values (lists, dicts, etc.)
+                if isinstance(value, (list, dict)):
+                    continue
+                    
+                try:
+                    confidence_score = float(value) if value is not None else 0.0
+                except (ValueError, TypeError):
+                    confidence_score = 0.0
+                    
+                if confidence_score < 0.90:
+                    fallbacks.append({
+                        "field": field_name,
+                        "score": confidence_score,
+                        "action": "Manual review required"
+                    })
+        
+        avg_relevance = sum(relevance_scores) / len(relevance_scores) if relevance_scores else 0.0
+        overall_confidence = 0.6 + (0.3 * avg_relevance)
+        
+        logger.info("=" * 70)
+        logger.info("EXTRACTION COMPLETE")
+        logger.info(f"   Overall Confidence: {overall_confidence:.2%}")
+        if fallbacks:
+            logger.warning(f"   Low confidence fields detected: {len(fallbacks)}")
+        logger.info("=" * 70)
+        
+        result = RAGResult(
+            extracted_data=merged_data,
+            confidence=overall_confidence,
+            context_used=context,
+            raw_llm_response=f"Batch 1: {batch1_raw}\nBatch 2: {batch2_raw}",
+            relevance_scores=relevance_scores
+        )
+        
+        # Add metadata and warnings to extracted data
+        if parsing_failures:
+            merged_data["_parsing_failures"] = parsing_failures
+        if fallbacks:
+            merged_data["_low_confidence_warnings"] = fallbacks
+        
+        return result
+    
+    def _parse_llm_response(self, llm_response: str) -> Dict[str, Any]:
+        """
+        Parse LLM response into structured JSON with aggressive repair logic.
+        """
+        import re
+        import json
+        from json_repair import repair_json
+        
+        cleaned_response = llm_response.strip()
+        
+        # 1. Try to find JSON block(s)
+        # We look for something that starts with { and ends with }
+        # Try to find the largest outer block first
+        match = re.search(r'(\{.*\})', cleaned_response, re.DOTALL)
+        if match:
+            candidate = match.group(1)
+            try:
+                repaired = repair_json(candidate, return_objects=True)
+                if isinstance(repaired, dict):
+                    return repaired
+                # Sometimes it returns a list of one dict
+                if isinstance(repaired, list) and len(repaired) > 0 and isinstance(repaired[0], dict):
+                    return repaired[0]
+            except Exception:
+                pass
+
+        # 2. If that fails, try finding multiple objects (models sometimes output separate {field:val} blocks)
+        # Non-recursive but handles most flat structures
+        blocks = re.findall(r'(\{[^{}]+\})', cleaned_response, re.DOTALL)
+        merged_result = {}
+        success = False
+        
+        for block in blocks:
+            try:
+                repaired = repair_json(block, return_objects=True)
+                if isinstance(repaired, dict):
+                    merged_result.update(repaired)
+                    success = True
+            except Exception:
+                continue
+                
+        if success:
+            return merged_result
+
+        # 3. Last ditch effort: try the whole response through json_repair
+        try:
+            repaired = repair_json(cleaned_response, return_objects=True)
+            if isinstance(repaired, dict):
+                return repaired
+        except Exception:
+            pass
+            
+        logger.warning("All JSON parsing attempts failed")
+        return {
+            "_original_response": llm_response,
+            "_parsing_error": "Failed to parse LLM response into valid JSON"
+        }
+    
+    def format_as_ocr_result(self, rag_result: RAGResult, original_ocr: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Format RAG result to match OCR client output structure.
+        
+        Args:
+            rag_result: RAG extraction result
+            original_ocr: Original OCR client output
+            
+        Returns:
+            Enhanced OCR result with RAG extractions
+        """
+        # Merge RAG extractions with original OCR structure
+        output = original_ocr.copy() if original_ocr else {}
+        
+        # Add RAG extractions
+        output['rag_extractions'] = rag_result.extracted_data
+        output['rag_confidence'] = rag_result.confidence
+        output['rag_context_relevance'] = rag_result.relevance_scores
+        
+        logger.info(" Formatted RAG result as OCR output")
+        
+        return output
+
+
+# Singleton instance
+_rag_pipeline = None
+
+
+def get_rag_pipeline(**kwargs) -> ReceiptRAGPipeline:
+    """Get or create singleton RAG pipeline instance."""
+    global _rag_pipeline
+    
+    if _rag_pipeline is None:
+        _rag_pipeline = ReceiptRAGPipeline(**kwargs)
+    
+    return _rag_pipeline

@@ -1,0 +1,262 @@
+WAGAMAMA Receipt Example:
+
+WAGAMAMA UNIT R3
+RUSHDEN LAKES NENE VALLEY
+NN10 6FA
+TEL: 01933 448945
+VAT REG: GB 316
+
+Date: 12 APR 19
+Time: 17:37
+Check Number: 6947
+Table: 911/1
+
+Items:
+1 AMERICANO 2.45
+1 SPARK 750ML 3.95
+1 PINOT GRIGO 18.50
+1 CHICKEN NOODLE 5.25
+1 PT ASAHI 5.25
+1 DUCK RAMEN 4.95
+1 CHICK RAISUKAREE 13.75
+1 CHILLI CHICKEN 12.75
+1 CHICK FIRECRACKE 11.75
+1 DUCK GYOZA 11.95
+1 TORI KARA AGE 5.75
+1 CHILLI SQUID 6.95
+1 BANG BANG CAUL 4.95
+1 CAPPUCCINO 2.65
+
+SUB TOTAL: £127.70
+VAT 20%: £21.28
+TOTAL: £127.70
+
+Payment: VISA XXXX 1094
+
+
+---
+
+WAITROSE & SHELL Petrol Receipt Example:
+
+Waitrose & Shell
+Crown Park
+Rushden
+NN10 6AR
+Site: 2549
+Telephone: 01933 355099
+VAT No: 232457280
+
+Date: 2019-04-13
+Time: 15:07:24
+
+Items:
+40.05 litre Pump #05
+FUELSAVE DIESEL £52.83
+1.319 £/litre
+Cadbury Creme Egg 5 Pack £2.00
+
+Total: £54.83
+Payment: VISA
+Card: XXXX1094
+Auth Code: 008405
+
+VAT 20% B: £0.33
+VAT 20% E: £8.81
+Total net: £45.69
+
+
+---
+
+INDIAN GROCERY Receipt Example:
+
+RAMDEV SUPERMARKET
+145 LONDON ROAD
+LEICESTER LE2 1EB
+Tel: 0116 254 8932
+GSTIN: 24AABCR1234F1Z5
+
+Date: 15-JAN-2024
+Time: 14:30:25
+Invoice: INV-2024-00145
+
+Items:
+1 Basmati Rice 5kg ₹450.00
+2 Toor Dal 1kg @₹180.00 ₹360.00
+1 Amul Butter 500g ₹240.00
+3 Maggi Noodles @₹12.00 ₹36.00
+1 Parle-G Biscuit ₹20.00
+
+Sub Total: ₹1,106.00
+CGST @2.5%: ₹27.65
+SGST @2.5%: ₹27.65
+TOTAL: ₹1,161.30
+
+Payment Mode: Cash
+Amount Paid: ₹1,200.00
+Balance: ₹38.70
+
+
+---
+
+UK SUPERMARKET Receipt Example:
+
+TESCO EXTRA
+LEICESTER FOSSE PARK
+LEICESTER LE19 1WX
+Tel: 0345 677 9876
+VAT: GB 220 4326 19
+
+Date: 20-NOV-2023
+Time: 10:45:12
+Receipt: 8475-6234-9812-5674
+
+Items:
+TESCO MILK 2L £1.55
+WARBURTONS BREAD £1.20
+HEINZ BEANS 4PK £3.00
+CHICKEN BREAST 500G £5.50
+BROCCOLI £0.95
+BANANAS 1KG £0.89
+
+TOTAL: £13.09
+CLUBCARD SAVINGS: £0.50
+YOU PAID: £12.59
+
+Payment: CONTACTLESS
+Card: MASTERCARD **** 7892
+
+
+---
+
+US COFFEE SHOP Receipt Example:
+
+STARBUCKS COFFEE
+123 MAIN STREET
+NEW YORK, NY 10001
+Store #12345
+Tel: (212) 555-0123
+
+Date: 03/15/2024
+Time: 08:45 AM
+Order: #1234567
+
+Items:
+Grande Latte $4.95
+Blueberry Muffin $3.25
+Croissant $2.75
+
+Subtotal: $10.95
+Tax (8.875%): $0.97
+TOTAL: $11.92
+
+Payment: VISA **** 8765
+Tip: $2.00
+TOTAL CHARGED: $13.92
+
+
+---
+
+MALAYSIAN RESTAURANT Receipt Example:
+
+RESTORAN NASI KANDAR
+JALAN BUKIT BINTANG
+50200 KUALA LUMPUR
+Tel: 03-2148-5678
+SST REG: C10-1234-56789012
+
+Tarikh: 10/02/2024
+Masa: 19:30
+Bil No: NK-240210-0567
+
+Item-item:
+1 Nasi Kandar RM 8.50
+1 Ayam Goreng RM 6.00
+1 Ikan Kari RM 12.00
+2 Teh Tarik @RM2.50 RM 5.00
+1 Air Mineral RM 2.00
+
+Jumlah: RM 33.50
+SST (6%): RM 2.01
+JUMLAH BAYARAN: RM 35.51
+
+Bayaran: Tunai
+Diterima: RM 50.00
+Baki: RM 14.49
+
+
+---
+
+PHARMACY Receipt Example:
+
+BOOTS THE CHEMIST
+HIGH STREET
+BIRMINGHAM B2 4BN
+VAT: GB 239 3259 69
+Tel: 0121 643 7890
+
+Date: 05-DEC-2023
+Time: 16:20:45
+Transaction: 567890-12-34567
+
+Items:
+PARACETAMOL 500MG 16S £0.39
+IBUPROFEN 200MG 16S £0.35
+STREPSILS LOZENGES £3.29
+VICKS INHALER £4.25
+TISSUES BOX £0.95
+
+SUBTOTAL: £9.23
+ADVANTAGE CARD POINTS: 46
+
+AMOUNT TO PAY: £9.23
+CARD PAYMENT: £9.23
+VISA DEBIT: **** 4521
+
+You saved £2.15 today!
+
+
+---
+
+Receipt Field Patterns:
+
+VENDOR INFORMATION:
+- Usually at the top of receipt
+- Company name in capital letters or large font
+- Address on next 2-3 lines
+- Phone number with "Tel:" or "Phone:" prefix
+- VAT/Tax registration with "VAT REG:", "GSTIN:", "SST REG:" prefix
+
+DATE AND TIME:
+- Formats vary: DD/MM/YYYY, MM/DD/YYYY, DD-MMM-YYYY
+- Time usually in HH:MM or HH:MM:SS format
+- May appear as "Date:", "Tarikh:", or just the date value
+
+INVOICE NUMBER:
+- Look for "Invoice:", "Receipt:", "Bill:", "Check Number:", "Bil No:"
+- Usually alphanumeric code
+- May include year or sequence numbers
+
+ITEMS:
+- Quantity at start of line
+- Item description in middle
+- Price at end (may have @ for unit price)
+- May span multiple lines for long descriptions
+
+TOTALS:
+- "SUBTOTAL" or "SUB TOTAL" before tax
+- Tax lines with percentages (VAT, GST, CGST, SGST, SST)
+- "TOTAL" or "AMOUNT TO PAY" as final amount
+- May show "Net Total" for amount before tax
+
+PAYMENT:
+- Payment method: Cash, Card, VISA, MASTERCARD, AMEX
+- Card numbers partially masked: XXXX or ****
+- May include tip or gratuity
+- Cash receipts show amount given and change
+
+CURRENCY INDICATORS:
+- £ for GBP (UK)
+- € for EUR (Europe)
+- $ for USD (US)
+- ₹ for INR (India)
+- RM for MYR (Malaysia)

@@ -1,0 +1,91 @@
+{
+  "date": "0.53/2017",
+  "date_confidence": 1.0,
+  "vat_amount": 12.94,
+  "vat_amount_confidence": 1.0,
+  "net_amount": 167.0,
+  "net_amount_confidence": 1.0,
+  "total_amount": 179.94,
+  "total_amount_confidence": 1.0,
+  "vat_details": [
+    {
+      "rate": null,
+      "amount": null
+    }
+  ],
+  "vat_details_confidence": 0.5,
+  "receipt_number": "2",
+  "receipt_number_confidence": 1.0,
+  "vat_number": "",
+  "vat_number_confidence": 0.8,
+  "payment_method": null,
+  "payment_method_confidence": 0.6,
+  "card_type": null,
+  "card_type_confidence": 0.75,
+  "supplier_name": "SASKA's",
+  "address": "3768 Mission Blvd, San Diego CA, 92109",
+  "items": [
+    {
+      "name": "Draft Blackhouse",
+      "quantity": 1,
+      "unit_price": 7.0,
+      "total_price": 7.0
+    },
+    {
+      "name": "Cowboy 16oz Ribeye",
+      "quantity": 1,
+      "unit_price": 45.0,
+      "total_price": 45.0
+    },
+    {
+      "name": "Make It Blue",
+      "quantity": 2,
+      "unit_price": 5.0,
+      "total_price": 10.0
+    },
+    {
+      "name": "Add Lobster",
+      "quantity": 1,
+      "unit_price": 21.0,
+      "total_price": 21.0
+    },
+    {
+      "name": "CK Manhattan (2 @5.00)",
+      "quantity": 2,
+      "unit_price": 5.0,
+      "total_price": 10.0
+    },
+    {
+      "name": "Whistle Pig Rye 10yr (2 @20.00)",
+      "quantity": 2,
+      "unit_price": 20.0,
+      "total_price": 40.0
+    },
+    {
+      "name": "BEFORE DISCOUNTS SUGGESTED TIP",
+      "value": "$30.06"
+    }
+  ],
+  "_low_confidence_warnings": [
+    {
+      "field": "vat_details",
+      "score": 0.5,
+      "action": "Manual review required"
+    },
+    {
+      "field": "vat_number",
+      "score": 0.8,
+      "action": "Manual review required"
+    },
+    {
+      "field": "payment_method",
+      "score": 0.6,
+      "action": "Manual review required"
+    },
+    {
+      "field": "card_type",
+      "score": 0.75,
+      "action": "Manual review required"
+    }
+  ]
+}

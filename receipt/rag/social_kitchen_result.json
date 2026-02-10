@@ -1,0 +1,79 @@
+{
+  "date": "25.00/2026",
+  "date_confidence": 1.0,
+  "vat_amount": "12.20",
+  "vat_amount_confidence": 1.0,
+  "net_amount": "243.80",
+  "net_amount_confidence": 1.0,
+  "total_amount": "256.00",
+  "total_amount_confidence": 1.0,
+  "vat_details": [
+    {
+      "rate": "2.5%",
+      "amount": "12.20"
+    }
+  ],
+  "vat_details_confidence": [
+    {
+      "rate": 1.0,
+      "amount": 1.0
+    },
+    {
+      "rate": 1.0,
+      "amount": 1.0
+    }
+  ],
+  "receipt_number": "92464",
+  "receipt_number_confidence": 1.0,
+  "vat_number": "33AdluP9584D1ZM",
+  "vat_number_confidence": 1.0,
+  "payment_method": "",
+  "payment_method_confidence": 0.7,
+  "card_type": "SS H4",
+  "card_type_confidence": 1.0,
+  "supplier_name": "Social Kitchen",
+  "address": "149, West Sambandam Road Coimbatore RS Puram-641002",
+  "items": [
+    {
+      "name": "Udupi Pudi Masala Dosa",
+      "quantity": 2,
+      "unit_price": 59.0,
+      "total_price": 118.0
+    },
+    {
+      "name": "Ragi masala Dosa",
+      "quantity": 1,
+      "unit_price": 69.0,
+      "total_price": 69.0
+    },
+    {
+      "name": "Avil Milk Shakes",
+      "quantity": 1,
+      "unit_price": 69.0,
+      "total_price": 69.0
+    }
+  ],
+  "address_confidence": 0.98,
+  "supplier_name_confidence": 0.95,
+  "items_confidence": [
+    0.97,
+    0.98,
+    0.97
+  ],
+  "_low_confidence_warnings": [
+    {
+      "field": "payment_method",
+      "score": 0.7,
+      "action": "Manual review required"
+    }
+  ],
+  "_metadata": {
+    "overall_confidence": 0.6065988525420158,
+    "relevance_scores": [
+      0.06612735050383256,
+      0.05931087421588799,
+      -0.0594496992995619
+    ],
+    "context_used": "---\n\nUS COFFEE SHOP Receipt Example:\n\nSTARBUCKS COFFEE\n123 MAIN STREET\nNEW YORK, NY 10001\nStore #12345\nTel: (212) 555-0123\n\nDate: 03/15/2024\nTime: 08:45 AM\nOrder: #1234567\n\nItems:\nGrande Latte $4.95\nBlueberry Muffin $3.25\nCroissant $2.75\n\nSubtotal: $10.95\nTax (8.875%): $0.97\nTOTAL: $11.92\n\nPayment: VISA **** 8765\nTip: $2.00\nTOTAL CHARGED: $13.92\n\n\n---\n\nMALAYSIAN RESTAURANT Receipt Example:\n\nRESTORAN NASI KANDAR\nJALAN BUKIT BINTANG\n50200 KUALA LUMPUR\nTel: 03-2148-5678\nSST REG: C10-1234-56789012\n\n..."
+  }
+}

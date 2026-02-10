@@ -1,0 +1,248 @@
+python : INFO:receipt_rag: Receipt RAG 
+Pipeline initialized
+At line:1 char:1
++ python e:\Downloads\receipt\receipt\rag\test
+_akira.py > akira_output. ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecifi    
+ed: (INFO:receipt_ra...ine initializ    
+ed:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeComm    
+andError
+ 
+INFO:receipt_rag:   Knowledge base: e:\Downloa
+ds\receipt\receipt\rag\knowledge_base\receipts
+INFO:receipt_rag:   Vector DB: 
+e:\Downloads\receipt\receipt\rag\chroma_db
+INFO:receipt_rag:   Ollama: 
+http://localhost:11434, Model: phi3.5
+INFO:receipt_rag: Initializing RAG 
+components...
+INFO:receipt_rag:LangChain components 
+imported successfully
+INFO:receipt_rag: Loading embedding model: 
+all-MiniLM-L6-v2
+e:\Downloads\receipt\receipt\rag\receipt_rag.p
+y:136: LangChainDeprecationWarning: The class 
+`HuggingFaceEmbeddings` was deprecated in 
+LangChain 0.2.2 and will be removed in 1.0. 
+An updated version of the class exists in the 
+:class:`~langchain-huggingface package and 
+should be used instead. To use it run `pip 
+install -U :class:`~langchain-huggingface` 
+and import as `from 
+:class:`~langchain_huggingface import 
+HuggingFaceEmbeddings``.
+  self.embeddings = lc['HuggingFaceEmbeddings'
+](model_name=self.embedding_model_name)
+2026-02-10 15:19:56.173081: I 
+tensorflow/core/util/port.cc:153] oneDNN 
+custom operations are on. You may see 
+slightly different numerical results due to 
+floating-point round-off errors from 
+different computation orders. To turn them 
+off, set the environment variable 
+`TF_ENABLE_ONEDNN_OPTS=0`.
+2026-02-10 15:19:59.747428: I 
+tensorflow/core/util/port.cc:153] oneDNN 
+custom operations are on. You may see 
+slightly different numerical results due to 
+floating-point round-off errors from 
+different computation orders. To turn them 
+off, set the environment variable 
+`TF_ENABLE_ONEDNN_OPTS=0`.
+WARNING:tensorflow:From C:\Users\MY PC\AppData
+\Local\Programs\Python\Python311\Lib\site-pack
+ages\tf_keras\src\losses.py:2976: The name 
+tf.losses.sparse_softmax_cross_entropy is 
+deprecated. Please use tf.compat.v1.losses.spa
+rse_softmax_cross_entropy instead.
+
+INFO:sentence_transformers.SentenceTransformer
+:Use pytorch device_name: cpu
+INFO:sentence_transformers.SentenceTransformer
+:Load pretrained SentenceTransformer: 
+all-MiniLM-L6-v2
+INFO:receipt_rag: Embeddings loaded
+INFO:receipt_rag: Knowledge base unchanged, 
+loading existing database
+e:\Downloads\receipt\receipt\rag\receipt_rag.p
+y:230: LangChainDeprecationWarning: The class 
+`Chroma` was deprecated in LangChain 0.2.9 
+and will be removed in 1.0. An updated 
+version of the class exists in the 
+:class:`~langchain-chroma package and should 
+be used instead. To use it run `pip install 
+-U :class:`~langchain-chroma` and import as 
+`from :class:`~langchain_chroma import 
+Chroma``.
+  self.vector_db = lc['Chroma'](
+INFO:chromadb.telemetry.product.posthog:Anonym
+ized telemetry enabled. See                   
+  https://docs.trychroma.com/telemetry for 
+more information.
+INFO:receipt_rag: Loaded existing vector DB 
+with 5 chunks
+INFO:receipt_rag:RAG pipeline ready
+INFO:receipt_rag:=============================
+=========================================
+INFO:receipt_rag: RECEIPT RAG EXTRACTION 
+STARTED
+INFO:receipt_rag:=============================
+=========================================
+INFO:receipt_rag: Retrieving relevant context 
+(k=3)...
+INFO:receipt_rag:   Query text: 
+    Akira
+    385 Rt 9 W
+    Glenmont , NY 12077
+    518-434-8880
+    www.akirasushigroup.com
+    2018-11-18 18:58:34
+    #37 PICKUP
+    Leo
+    Phil
+    QTY    ITEM                Amt
+    1 Hi. Chk ...
+INFO:receipt_rag: Retrieved 3 relevant chunks
+INFO:receipt_rag:    Chunk #1:
+INFO:receipt_rag:       Distance: 1.0707
+INFO:receipt_rag:       Relevance: -0.0707
+INFO:receipt_rag:       Content: WAGAMAMA 
+Receipt Example:
+
+WAGAMAMA UNIT R3
+RUSHDEN LAKES NENE VALLEY
+NN10 6FA
+TEL: 01933 448945
+VAT...
+INFO:receipt_rag:    Chunk #2:
+INFO:receipt_rag:       Distance: 1.1492
+INFO:receipt_rag:       Relevance: -0.1492
+INFO:receipt_rag:       Content: ---
+
+INDIAN GROCERY Receipt Example:
+
+RAMDEV SUPERMARKET
+145 LONDON ROAD
+LEICESTER LE2 1EB
+Tel: 0116...
+INFO:receipt_rag:    Chunk #3:
+INFO:receipt_rag:       Distance: 1.1562
+INFO:receipt_rag:       Relevance: -0.1562
+INFO:receipt_rag:       Content: ---
+
+US COFFEE SHOP Receipt Example:
+
+STARBUCKS COFFEE
+123 MAIN STREET
+NEW YORK, NY 10001
+Store #123...
+INFO:receipt_rag: Generating batch 1 with 
+Ollama (phi3.5)...
+INFO:receipt_rag: Generating batch 2 with 
+Ollama (phi3.5)...
+INFO:receipt_rag:=============================
+=========================================
+INFO:receipt_rag:EXTRACTION COMPLETE
+INFO:receipt_rag:   Overall Confidence: 56.24%
+INFO:receipt_rag:=============================
+=========================================
+Traceback (most recent call last):
+  File "e:\Downloads\receipt\receipt\rag\test_
+akira.py", line 92, in test_akira_extraction
+    print(f"\n\U0001f3e8 Supplier: 
+{data.get('supplier_name', 'N/A')}")
+  File "C:\Users\MY PC\AppData\Local\Programs\
+Python\Python311\Lib\encodings\cp1252.py", 
+line 19, in encode
+    return codecs.charmap_encode(input,self.er
+rors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't 
+encode character '\U0001f3e8' in position 2: 
+character maps to <undefined>
+
+======================================================================
+TESTING RAG PIPELINE WITH AKIRA RECEIPT
+======================================================================
+
+INPUT RECEIPT:
+----------------------------------------------------------------------
+Akira
+    385 Rt 9 W
+    Glenmont , NY 12077
+    518-434-8880
+    www.akirasushigroup.com
+    2018-11-18 18:58:34
+    #37 PICKUP
+    Leo
+    Phil
+    QTY    ITEM                Amt
+    1 Hi. Chk Steak(K)         $22.95
+      Med
+      Noodle                   $2.00
+    1 Sushi Deluxe             $20.75
+    1 Glenmont Roll            $15.95
+    1 Philly R                 $6.50
+    2 Sp Tuna R                $13.00
+    1 Salmon R                 $5.50
+    Subtotal                   $86.65
+    Tax                        $6.93
+    Total:                     $93.58
+    *** Unpaid ***
+----------------------------------------------------------------------
+
+[*] Initializing RAG pipeline...
+
+[*] Running extraction on Akira receipt...
+
+======================================================================
+EXTRACTION RESULTS
+======================================================================
+
+Confidence: 56.24%
+
+Extracted Data:
+{
+  "date": "2018-11-18",
+  "vat_amount": 6.93,
+  "net_amount": 86.65,
+  "total_amount": 93.58,
+  "vat_details": [
+    {
+      "rate": null,
+      "amount": null
+    }
+  ],
+  "receipt_number": "#37",
+  "vat_number": null,
+  "payment_method": null,
+  "card_type": null,
+  "supplier_name": "Leo's Sushi Grill",
+  "address": "385 Rt 9 W Glenmont , NY 12077",
+  "items": [
+    {
+      "name": "Hi. Chk Steak(K)",
+      "quantity": 1,
+      "unit_price": "$22.95",
+      "total_price": "$22.95"
+    },
+    {
+      "0": {
+        "name": "Med Noodle",
+        "quantity": 1,
+        "unit_price": "$2.00",
+        "total_price": "$2.00"
+      }
+    }
+  ]
+}
+
+======================================================================
+DETAILED SUMMARY
+======================================================================
+
+[X] Error: 'charmap' codec can't encode character '\U0001f3e8' in position 2: character maps to <undefined>
