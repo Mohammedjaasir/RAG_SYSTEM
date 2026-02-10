@@ -1,0 +1,22 @@
+fastapi
+uvicorn[standard]
+pydantic
+langchain
+langchain-community
+langchain-core
+langchain-text-splitters
+chromadb
+transformers
+sentence-transformers
+json-repair>=0.25.0
+python-dateutil
+requests
+python-multipart
+python-dotenv
+numpy
+pillow
+pandas
+torch
+pymupdf
+# llama-cpp-python is optional and requires C++ build tools on Windows.
+# Install manually if needed using: pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
