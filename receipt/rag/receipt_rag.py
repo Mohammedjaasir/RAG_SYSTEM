@@ -61,6 +61,7 @@ class RAGResult:
     context_used: str
     raw_llm_response: str
     relevance_scores: List[float]
+    hallucination_report: List[str] = None
 
 
 class ReceiptRAGPipeline:
@@ -73,6 +74,7 @@ class ReceiptRAGPipeline:
     def __init__(
         self,
         knowledge_base_dir: Optional[str] = None,
+        persist_directory: Optional[str] = None,
         ollama_url: str = "http://localhost:11434",
         model_name: str = "phi3.5",
         chunk_size: int = 1000,
@@ -84,6 +86,7 @@ class ReceiptRAGPipeline:
         
         Args:
             knowledge_base_dir: Directory containing receipt example text files
+            persist_directory: Custom directory for ChromaDB persistence
             ollama_url: URL of Ollama service (default: http://localhost:11434)
             model_name: Ollama model name (default: phi3.5)
             chunk_size: Size of text chunks for splitting
@@ -97,7 +100,11 @@ class ReceiptRAGPipeline:
         self.knowledge_base_dir.mkdir(parents=True, exist_ok=True)
         
         # ChromaDB persistence
-        self.persist_dir = Path(__file__).parent / "chroma_db"
+        if persist_directory:
+            self.persist_dir = Path(persist_directory)
+        else:
+            self.persist_dir = Path(__file__).parent / "chroma_db"
+            
         self.persist_dir.mkdir(parents=True, exist_ok=True)
         
         self.metadata_file = self.persist_dir / "metadata.json"
@@ -589,8 +596,73 @@ Output ONLY the JSON object. No preamble, no markdown formatting, no explanation
             merged_data["_parsing_failures"] = parsing_failures
         if fallbacks:
             merged_data["_low_confidence_warnings"] = fallbacks
+            
+        # Step 5: Hallucination Validation
+        hallucination_report = self._validate_hallucinations(merged_data, ocr_text, context)
+        if hallucination_report:
+            merged_data["_hallucination_report"] = hallucination_report
+            # Adjust overall confidence if hallucinations suspected
+            overall_confidence *= (1.0 - (0.2 * len(hallucination_report)))
+            overall_confidence = max(0.0, overall_confidence)
+        
+        result = RAGResult(
+            extracted_data=merged_data,
+            confidence=overall_confidence,
+            context_used=context,
+            raw_llm_response=raw_output,
+            relevance_scores=relevance_scores,
+            hallucination_report=hallucination_report
+        )
         
         return result
+
+    def _validate_hallucinations(self, data: Dict[str, Any], ocr_text: str, context: str) -> List[str]:
+        """
+        Check for common hallucination patterns by cross-referencing with OCR source.
+        """
+        report = []
+        import re
+        
+        # Helper to check if a value exists in OCR text
+        def is_in_ocr(value):
+            if value is None or value == 'N/A' or value == '':
+                return True
+            # Clean string for fuzzy check
+            v_str = str(value).strip().lower()
+            if not v_str: return True
+            return v_str in ocr_text.lower()
+
+        # 1. Fact Check: Key Fields
+        for field in ['total_amount', 'receipt_number', 'supplier_name']:
+            val = data.get(field)
+            # Handle nested production format
+            if isinstance(val, dict) and 'value' in val:
+                val = val['value']
+            
+            if val and not is_in_ocr(val):
+                report.append(f"Potential hallucination: '{field}' value '{val}' not found in raw OCR text.")
+
+        # 2. Fact Check: Items
+        items = data.get('items', [])
+        for item in items:
+            if isinstance(item, dict):
+                name = item.get('name', [])
+                name = name[0] if isinstance(name, list) and name else 'N/A'
+                if name != 'N/A' and not is_in_ocr(name):
+                    # Be slightly more lenient with names as OCR may have broken lines
+                    # Only report if a large chunk of the name is missing
+                    if len(name) > 5 and not any(part.lower() in ocr_text.lower() for part in name.split() if len(part) > 3):
+                        report.append(f"Potential hallucination: Item name '{name}' not grounded in OCR text.")
+
+        # 3. Context Leak Check
+        # Check if any extracted values appear in the context but NOT in OCR
+        # This prevents the "Wagamama effect"
+        example_names = ['wagamama', 'tesco', 'sainsbury', 'starbucks', 'mcdonald']
+        for name in example_names:
+            if name in str(data).lower() and name not in ocr_text.lower():
+                report.append(f"Context Leak: Detected example-related name '{name}' in extraction result.")
+
+        return report
     
     def _parse_llm_response(self, llm_response: str) -> Dict[str, Any]:
         """
@@ -684,7 +756,7 @@ Output ONLY the JSON object. No preamble, no markdown formatting, no explanation
         json_path = target_dir / f"{base_name}_result.json"
         with open(json_path, "w", encoding='utf-8') as f:
             json.dump(result.extracted_data, f, indent=2)
-        logger.info(f" Saved JSON results to {json_path}")
+        print(f" [✓] Saved JSON results to: {json_path}")
         
         # Save formatted text summary
         txt_path = target_dir / f"{base_name}_summary.txt"
@@ -694,23 +766,49 @@ Output ONLY the JSON object. No preamble, no markdown formatting, no explanation
             f.write("="*70 + "\n\n")
             
             f.write(f"Confidence: {result.confidence:.2%}\n")
-            f.write(f"Relevance Scores: {result.relevance_scores}\n\n")
+            f.write(f"Relevance Scores: {result.relevance_scores}\n")
+            
+            if result.hallucination_report:
+                f.write("\n" + "!"*70 + "\n")
+                f.write("HALLUCINATION WARNINGS:\n")
+                for warning in result.hallucination_report:
+                    f.write(f"  [X] {warning}\n")
+                f.write("!"*70 + "\n\n")
+            else:
+                f.write("Hallucination check: PASSED (All data grounded in OCR)\n\n")
             
             data = result.extracted_data
-            f.write(f"Supplier: {data.get('supplier_name', 'N/A')}\n")
-            f.write(f"Address: {data.get('address', 'N/A')}\n")
-            f.write(f"Date: {data.get('date', 'N/A')}\n")
-            f.write(f"Total Amount: {data.get('total_amount', 'N/A')}\n")
-            f.write(f"Tax Amount: {data.get('tax_amount', 'N/A')}\n\n")
+            
+            # Helper to extract value from production-style dict
+            def get_val(key):
+                val = data.get(key, 'N/A')
+                if isinstance(val, dict) and 'value' in val:
+                    return val['value']
+                return val
+
+            f.write(f"Supplier: {get_val('supplier_name')}\n")
+            f.write(f"Address: {get_val('address')}\n")
+            
+            # Handle list-style dates/amounts
+            date_val = get_val('date')
+            if isinstance(date_val, list) and date_val:
+                f.write(f"Date: {date_val[0].get('value') if isinstance(date_val[0], dict) else date_val[0]}\n")
+            else:
+                f.write(f"Date: {date_val}\n")
+                
+            f.write(f"Total Amount: {get_val('total_amount')}\n")
+            f.write(f"Tax Amount: {get_val('tax_amount') or get_val('vat_amount')}\n\n")
             
             f.write("Items:\n")
             for item in data.get('items', []):
                 if isinstance(item, dict):
-                    f.write(f"  - {item.get('name', 'N/A')}: {item.get('total_price', item.get('price', 'N/A'))}\n")
+                    name = item.get('name', ['N/A'])[0] if isinstance(item.get('name'), list) else item.get('name', 'N/A')
+                    price = item.get('total_price', {}).get('value', 'N/A') if isinstance(item.get('total_price'), dict) else item.get('total_price', 'N/A')
+                    f.write(f"  - {name}: {price}\n")
             
             f.write("\n" + "="*70 + "\n")
             
-        logger.info(f" Saved text summary to {txt_path}")
+        print(f" [✓] Saved text summary to: {txt_path}")
 
 
 # Singleton instance

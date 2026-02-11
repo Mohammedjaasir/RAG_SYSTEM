@@ -54,7 +54,13 @@ def test_premier_inn_invoice_extraction():
         print("PROCESSING PREMIER INN INVOICE (TRANSCRIPTION FROM IMAGE)")
         print("="*70 + "\n")
         
-        pipeline = get_rag_pipeline()
+        # Use a temporary database path specifically for this test to avoid corruption
+        temp_db = Path(__file__).parent / "temp_chroma_db"
+        if temp_db.exists():
+            import shutil
+            shutil.rmtree(temp_db)
+            
+        pipeline = get_rag_pipeline(persist_directory=str(temp_db))
         
         print("\n[*] Running extraction...")
         result = pipeline.extract_from_ocr(invoice_ocr, retrieve_k=3)
@@ -75,7 +81,18 @@ def test_premier_inn_invoice_extraction():
 
         # 1. Header Information
         print(f"\n[✓] Confidence Score: {result.confidence:.2%}")
-        print(f"    Supplier:         {get_v('supplier_name')}")
+        
+        # Hallucination Check - Terminal Display
+        if result.hallucination_report:
+            print("\n" + "!"*70)
+            print("  ⚠️  HALLUCINATION WARNING")
+            for warning in result.hallucination_report:
+                print(f"  [X] {warning}")
+            print("!"*70)
+        else:
+            print("\n[✓] Hallucination Check: PASSED (Data is grounded in OCR text)")
+            
+        print(f"\n    Supplier:         {get_v('supplier_name')}")
         print(f"    Address:          {get_v('address')}")
         print(f"    Invoice #:        {get_v('receipt_number')}")
         

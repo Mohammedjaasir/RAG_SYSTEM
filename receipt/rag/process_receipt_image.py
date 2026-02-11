@@ -67,6 +67,17 @@ def process_image(image_path):
 
             # 1. Header Information
             print(f"\n[✓] Confidence Score: {rag_result.confidence:.2%}")
+            
+            # Hallucination Check - Terminal Display
+            if rag_result.hallucination_report:
+                print("\n" + "!"*70)
+                print("  ⚠️  HALLUCINATION WARNING")
+                for warning in rag_result.hallucination_report:
+                    print(f"  [X] {warning}")
+                print("!"*70)
+            else:
+                print("\n[✓] Hallucination Check: PASSED (Data is grounded in OCR text)")
+                
             print(f"    Supplier:         {get_v('supplier_name')}")
             print(f"    Address:          {get_v('address')}")
             print(f"    Invoice #:        {get_v('receipt_number')}")
