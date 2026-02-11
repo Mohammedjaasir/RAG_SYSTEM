@@ -59,16 +59,63 @@ def test_premier_inn_invoice_extraction():
         print("\n[*] Running extraction...")
         result = pipeline.extract_from_ocr(invoice_ocr, retrieve_k=3)
         
-        # Display results
+        # Display results with the requested header and all details
         print("\n" + "="*70)
-        print("EXTRACTION RESULTS")
+        print("RECEIPT RAG EXTRACTION")
         print("="*70)
         
-        print(f"\nConfidence: {result.confidence:.2%}")
-        print("\nExtracted Data:")
-        print(json.dumps(result.extracted_data, indent=2))
+        data = result.extracted_data
         
-        # Save results using helper
+        # Helper to safely extract values from production format (nested dicts)
+        def get_v(k):
+            val = data.get(k, 'N/A')
+            if isinstance(val, dict) and 'value' in val:
+                return val['value']
+            return val
+
+        # 1. Header Information
+        print(f"\n[✓] Confidence Score: {result.confidence:.2%}")
+        print(f"    Supplier:         {get_v('supplier_name')}")
+        print(f"    Address:          {get_v('address')}")
+        print(f"    Invoice #:        {get_v('receipt_number')}")
+        
+        # Handle Date (which can be a list in production format)
+        date_raw = get_v('date')
+        date_str = date_raw[0].get('value') if isinstance(date_raw, list) and date_raw and isinstance(date_raw[0], dict) else date_raw
+        print(f"    Date:             {date_str}")
+        
+        # 2. Line Items
+        print("\n[✓] Extracted Items:")
+        items = data.get('items', [])
+        if items:
+            print(f"    {'QTY':<5} {'ITEM DESCRIPTION':<40} {'PRICE':>10}")
+            print(f"    {'-'*5} {'-'*40} {'-'*10}")
+            for item in items:
+                if isinstance(item, dict):
+                    # Handle production-style qty/price lists/dicts
+                    qty = item.get('quantity', [])
+                    qty = qty[0] if isinstance(qty, list) and qty else '1'
+                    name = item.get('name', ['N/A'])
+                    name = name[0] if isinstance(name, list) and name else 'N/A'
+                    price = item.get('total_price', {})
+                    if isinstance(price, dict):
+                        price_val = price.get('value', 'N/A')
+                    else:
+                        price_val = price
+                    
+                    print(f"    {str(qty):<5} {str(name)[:40]:<40} {str(price_val):>10}")
+        else:
+            print("    No items extracted.")
+
+        # 3. Financial Totals
+        print("\n[✓] Financial Totals:")
+        print(f"    Subtotal:         {get_v('net_amount') or get_v('subtotal')}")
+        print(f"    Tax/VAT:          {get_v('vat_amount') or get_v('total_tax_amount')}")
+        print(f"    TOTAL AMOUNT:     {get_v('total_amount')}")
+        
+        print("\n" + "-"*70)
+        
+        # Save results using helper (this also prints the file paths)
         pipeline.save_result_to_file(result, "premier_inn_invoice")
         
         print("\n" + "="*70)

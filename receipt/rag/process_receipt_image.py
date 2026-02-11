@@ -51,14 +51,56 @@ def process_image(image_path):
             print("[*] Running field extraction...")
             rag_result = rag_pipeline.extract_from_ocr(ocr_result.text)
             
-            # 3. Save results
+            # 3. Save results and Display Details
             print("\n" + "="*70)
-            print("EXTRACTION RESULTS")
+            print("RECEIPT RAG EXTRACTION")
             print("="*70)
             
-            print(f"\nConfidence: {rag_result.confidence:.2%}")
-            print("\nExtracted Data:")
-            print(json.dumps(rag_result.extracted_data, indent=2))
+            data = rag_result.extracted_data
+            
+            # Helper to safely extract values from production format (nested dicts)
+            def get_v(k):
+                val = data.get(k, 'N/A')
+                if isinstance(val, dict) and 'value' in val:
+                    return val['value']
+                return val
+
+            # 1. Header Information
+            print(f"\n[✓] Confidence Score: {rag_result.confidence:.2%}")
+            print(f"    Supplier:         {get_v('supplier_name')}")
+            print(f"    Address:          {get_v('address')}")
+            print(f"    Invoice #:        {get_v('receipt_number')}")
+            
+            # Handle Date (which can be a list in production format)
+            date_raw = get_v('date')
+            date_str = date_raw[0].get('value') if isinstance(date_raw, list) and date_raw and isinstance(date_raw[0], dict) else date_raw
+            print(f"    Date:             {date_str}")
+            
+            # 2. Line Items
+            print("\n[✓] Extracted Items:")
+            items = data.get('items', [])
+            if items:
+                print(f"    {'QTY':<5} {'ITEM DESCRIPTION':<40} {'PRICE':>10}")
+                print(f"    {'-'*5} {'-'*40} {'-'*10}")
+                for item in items:
+                    if isinstance(item, dict):
+                        qty = item.get('quantity', [])
+                        qty = qty[0] if isinstance(qty, list) and qty else '1'
+                        name = item.get('name', ['N/A'])
+                        name = name[0] if isinstance(name, list) and name else 'N/A'
+                        price = item.get('total_price', {})
+                        price_val = price.get('value', 'N/A') if isinstance(price, dict) else price
+                        print(f"    {str(qty):<5} {str(name)[:40]:<40} {str(price_val):>10}")
+            else:
+                print("    No items extracted.")
+
+            # 3. Financial Totals
+            print("\n[✓] Financial Totals:")
+            print(f"    Subtotal:         {get_v('net_amount') or get_v('subtotal')}")
+            print(f"    Tax/VAT:          {get_v('vat_amount') or get_v('total_tax_amount')}")
+            print(f"    TOTAL AMOUNT:     {get_v('total_amount')}")
+            
+            print("\n" + "-"*70)
             
             # Use our new helper to save JSON and Summary
             base_name = p.stem
