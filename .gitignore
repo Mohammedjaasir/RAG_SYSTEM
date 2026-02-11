@@ -41,6 +41,11 @@ data/processed/
 *.sqlite
 *.db
 
+# Extraction Outputs
+*_output.txt
+*_result.json
+*_summary.txt
+
 # IDEs
 .vscode/
 .idea/

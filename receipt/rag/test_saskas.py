@@ -8,6 +8,7 @@ import sys
 import json
 import logging
 from pathlib import Path
+from logger_utils import setup_output_capture
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -72,33 +73,30 @@ def test_saskas_extraction():
     print(saskas_ocr)
     print("-" * 70)
     
-    try:
-        # Initialize RAG pipeline
-        print("\n[*] Initializing RAG pipeline...")
-        pipeline = get_rag_pipeline()
-        
-        # Run extraction
-        print("\n[*] Running extraction on Saska's receipt...")
-        result = pipeline.extract_from_ocr(saskas_ocr, retrieve_k=3)
-        
-        # Display results
-        print("\n" + "="*70)
-        print("EXTRACTION RESULTS")
-        print("="*70)
-        
-        print(f"\nConfidence: {result.confidence:.2%}")
-        
-        # Save to file to avoid encoding issues
-        output_file = Path("saskas_extraction.json")
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(result.extracted_data, f, indent=2)
+    with setup_output_capture(__file__):
+        try:
+            # Initialize RAG pipeline
+            print("\n[*] Initializing RAG pipeline...")
+            pipeline = get_rag_pipeline()
             
-        print(f"\nExtraction saved to {output_file.absolute()}")
-        
-        # Simple console output (ASCII only)
-        extracted_data = result.extracted_data
-        print(f"\nSupplier: {extracted_data.get('supplier_name', 'N/A')}")
-        print(f"Total: {extracted_data.get('total_amount', 'N/A')}")
+            # Run extraction
+            print("\n[*] Running extraction on Saska's receipt...")
+            result = pipeline.extract_from_ocr(saskas_ocr, retrieve_k=3)
+            
+            # Display results
+            print("\n" + "="*70)
+            print("EXTRACTION RESULTS")
+            print("="*70)
+            
+            print(f"\nConfidence: {result.confidence:.2%}")
+            
+            # Save results using helper
+            pipeline.save_result_to_file(result, "saskas")
+            
+            # Simple console output (ASCII only)
+            extracted_data = result.extracted_data
+            print(f"\nSupplier: {extracted_data.get('supplier_name', 'N/A')}")
+            print(f"Total: {extracted_data.get('total_amount', 'N/A')}")
 
         
     except Exception as e:

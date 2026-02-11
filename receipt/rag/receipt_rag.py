@@ -412,42 +412,35 @@ class ReceiptRAGPipeline:
         except:
             return amount
 
-    def _generate_answer_batch(
+    def _generate_extraction(
         self,
         ocr_text: str,
-        context: str,
-        prompt_type: int
+        context: str
     ) -> str:
         """
-        Generate extraction results for a specific subset of fields.
+        Generate extraction results for all fields in a single pass.
         
         Args:
             ocr_text: OCR text from receipt
             context: Retrieved context from knowledge base
-            prompt_type: 1 for basic fields, 2 for complex fields
         """
         import requests
         
         lc = _get_langchain()
         
-        if prompt_type == 1:
-            fields_desc = """
-            - date
-            - vat_amount
-            - net_amount (total excluding VAT)
-            - total_amount
-            - vat_details (list of: rate, amount)
-            - receipt_number
-            - vat_number
-            - payment_method (cash/card/etc.)
-            - card_type (visa/mastercard/etc.)
-            """
-        else:
-            fields_desc = """
-            - supplier_name
-            - address
-            - items (list of: name, quantity, unit_price, total_price)
-            """
+        fields_desc = """
+        - supplier_name
+        - address
+        - date (YYYY-MM-DD)
+        - vat_amount (float)
+        - net_amount (float, total excluding VAT)
+        - total_amount (float)
+        - vat_details (list of: rate, amount)
+        - receipt_number
+        - vat_number
+        - payment_method (cash/card/etc.)
+        - items (list of: name, quantity, unit_price, total_price)
+        """
 
         template = f"""You are a professional receipt data extraction expert. 
 Your task is to extract structured information from the <target_receipt> provided below.
@@ -488,8 +481,7 @@ Output ONLY the JSON object. No preamble, no markdown formatting, no explanation
             receipt_text=ocr_text
         )
         
-        logger.info(f" Generating batch {prompt_type} with Ollama ({self.model_name})...")
-        
+        logger.info(f" Generating extraction with Ollama ({self.model_name})...")
         try:
             response = requests.post(
                 f"{self.ollama_url}/api/generate",
@@ -499,7 +491,7 @@ Output ONLY the JSON object. No preamble, no markdown formatting, no explanation
                     "stream": False,
                     "options": {
                         "temperature": 0.1,
-                        "num_predict": 1024
+                        "num_predict": 2048
                     }
                 },
                 timeout=600
@@ -508,7 +500,7 @@ Output ONLY the JSON object. No preamble, no markdown formatting, no explanation
             llm_output = response.json().get('response', '')
             return self._clean_json_output(llm_output)
         except Exception as e:
-            logger.error(f" Batch {prompt_type} generation failed: {e}")
+            logger.error(f" Extraction generation failed: {e}")
             raise
 
     def extract_from_ocr(
@@ -537,27 +529,19 @@ Output ONLY the JSON object. No preamble, no markdown formatting, no explanation
         context = retrieval['context']
         relevance_scores = retrieval['relevance_scores']
         
-        # Step 2: Generate extractions (Two-Prompt Strategy)
-        batch1_raw = self._generate_answer_batch(ocr_text, context, prompt_type=1)
-        batch2_raw = self._generate_answer_batch(ocr_text, context, prompt_type=2)
+        # Step 2: Generate extraction (Single Prompt Strategy)
+        raw_output = self._generate_extraction(ocr_text, context)
         
-        # Merging logic
-        data1 = self._parse_llm_response(batch1_raw)
-        data2 = self._parse_llm_response(batch2_raw)
-        
-        # Normalize each batch
-        data1 = self._normalize_extracted_data(data1)
-        data2 = self._normalize_extracted_data(data2)
+        # Step 3: Parsing & Normalization
+        data = self._parse_llm_response(raw_output)
+        data = self._normalize_extracted_data(data)
         
         # Merge results, but keep track of failures
-        merged_data = {}
+        merged_data = data
         parsing_failures = []
         
-        for data, batch_num in [(data1, 1), (data2, 2)]:
-            if "_parsing_error" in data:
-                parsing_failures.append(f"Prompt {batch_num} failed to parse")
-                continue
-            merged_data.update(data)
+        if "_parsing_error" in data:
+            parsing_failures.append("LLM response failed to parse as valid JSON")
         
         # Step 4: Fallback Strategy & Overall Confidence
         # Check field-wise confidence
@@ -596,7 +580,7 @@ Output ONLY the JSON object. No preamble, no markdown formatting, no explanation
             extracted_data=merged_data,
             confidence=overall_confidence,
             context_used=context,
-            raw_llm_response=f"Batch 1: {batch1_raw}\nBatch 2: {batch2_raw}",
+            raw_llm_response=raw_output,
             relevance_scores=relevance_scores
         )
         
@@ -688,6 +672,45 @@ Output ONLY the JSON object. No preamble, no markdown formatting, no explanation
         logger.info(" Formatted RAG result as OCR output")
         
         return output
+
+    def save_result_to_file(self, result: RAGResult, base_name: str, target_dir: Optional[Path] = None):
+        """
+        Save RAG result to JSON and formatted text files.
+        """
+        if target_dir is None:
+            target_dir = Path(__file__).parent
+        
+        # Save JSON
+        json_path = target_dir / f"{base_name}_result.json"
+        with open(json_path, "w", encoding='utf-8') as f:
+            json.dump(result.extracted_data, f, indent=2)
+        logger.info(f" Saved JSON results to {json_path}")
+        
+        # Save formatted text summary
+        txt_path = target_dir / f"{base_name}_summary.txt"
+        with open(txt_path, "w", encoding='utf-8') as f:
+            f.write("="*70 + "\n")
+            f.write(f"EXTRACTION SUMMARY: {base_name.upper()}\n")
+            f.write("="*70 + "\n\n")
+            
+            f.write(f"Confidence: {result.confidence:.2%}\n")
+            f.write(f"Relevance Scores: {result.relevance_scores}\n\n")
+            
+            data = result.extracted_data
+            f.write(f"Supplier: {data.get('supplier_name', 'N/A')}\n")
+            f.write(f"Address: {data.get('address', 'N/A')}\n")
+            f.write(f"Date: {data.get('date', 'N/A')}\n")
+            f.write(f"Total Amount: {data.get('total_amount', 'N/A')}\n")
+            f.write(f"Tax Amount: {data.get('tax_amount', 'N/A')}\n\n")
+            
+            f.write("Items:\n")
+            for item in data.get('items', []):
+                if isinstance(item, dict):
+                    f.write(f"  - {item.get('name', 'N/A')}: {item.get('total_price', item.get('price', 'N/A'))}\n")
+            
+            f.write("\n" + "="*70 + "\n")
+            
+        logger.info(f" Saved text summary to {txt_path}")
 
 
 # Singleton instance

@@ -9,6 +9,7 @@ import sys
 import json
 import logging
 from pathlib import Path
+from logger_utils import setup_output_capture
 
 # Add project root to path (parent of 'receipt' package)
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -62,46 +63,50 @@ def test_diverse_receipt():
     print(hotel_ocr.strip())
     print("-" * 70)
     
-    try:
-        pipeline = get_rag_pipeline()
-        
-        print("\n[*] Running extraction...")
-        result = pipeline.extract_from_ocr(hotel_ocr, retrieve_k=2)
-        
-        print("\n" + "="*70)
-        print("EXTRACTION RESULTS")
-        print("="*70)
-        
-        data = result.extracted_data
-        print(f"Supplier: {data.get('supplier_name')}")
-        print(f"Date:     {data.get('date') or data.get('receipt_date')}")
-        print(f"Total:    {data.get('total_amount')}")
-        print(f"VAT #:    {data.get('vat_number')}")
-        
-        print("\nITEMS:")
-        items = data.get('items', [])
-        if items:
-            for item in items:
-                name = item.get('name', item.get('description', 'N/A'))
-                price = item.get('total_price', item.get('item_amount', 'N/A'))
-                print(f"  - {name}: {price}")
-        else:
-            print("  No items found.")
+    with setup_output_capture(__file__):
+        try:
+            pipeline = get_rag_pipeline()
             
-        print("\nFull JSON:")
-        print(json.dumps(data, indent=2))
-        
-        print("\n" + "="*70)
-        print("[+] Verification complete!")
-        print("="*70)
-        
-    except Exception:
-        import traceback
-        print("\n" + "="*70)
-        print("CRITICAL ERROR DURING INITIALIZATION")
-        print("="*70)
-        traceback.print_exc()
-        print("="*70)
+            print("\n[*] Running extraction...")
+            result = pipeline.extract_from_ocr(hotel_ocr, retrieve_k=2)
+            
+            print("\n" + "="*70)
+            print("EXTRACTION RESULTS")
+            print("="*70)
+            
+            data = result.extracted_data
+            print(f"Supplier: {data.get('supplier_name')}")
+            print(f"Date:     {data.get('date') or data.get('receipt_date')}")
+            print(f"Total:    {data.get('total_amount')}")
+            print(f"VAT #:    {data.get('vat_number')}")
+            
+            print("\nITEMS:")
+            items = data.get('items', [])
+            if items:
+                for item in items:
+                    name = item.get('name', item.get('description', 'N/A'))
+                    price = item.get('total_price', item.get('item_amount', 'N/A'))
+                    print(f"  - {name}: {price}")
+            else:
+                print("  No items found.")
+                
+            print("\nFull JSON:")
+            print(json.dumps(data, indent=2))
+            
+            # Save results using helper
+            pipeline.save_result_to_file(result, "diverse_hotel")
+            
+            print("\n" + "="*70)
+            print("[+] Verification complete!")
+            print("="*70)
+            
+        except Exception:
+            import traceback
+            print("\n" + "="*70)
+            print("CRITICAL ERROR DURING INITIALIZATION")
+            print("="*70)
+            traceback.print_exc()
+            print("="*70)
 
 if __name__ == "__main__":
     test_diverse_receipt()
