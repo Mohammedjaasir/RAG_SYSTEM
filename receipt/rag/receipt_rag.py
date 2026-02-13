@@ -450,43 +450,29 @@ class ReceiptRAGPipeline:
         """
 
         template = f"""You are a professional receipt data extraction expert. 
-Your task is to extract structured information from the <target_receipt> provided below.
-
-<context>
-EXAMPLES OF SIMILAR RECEIPTS (FOR PATTERN REFERENCE ONLY):
-{{context}}
-</context>
+Extract data from the <target_receipt> into the JSON format below.
 
 <target_receipt>
-ACTUAL OCR TEXT TO EXTRACT FROM:
-{{receipt_text}}
+{ocr_text}
 </target_receipt>
 
-INSTRUCTIONS:
-1. **Source Control**: Only extract data that appears explicitly in the <target_receipt> section. Do NOT use data from the <context> examples.
-2. **Missing Data**: If a field is not present in the <target_receipt>, return `null` for that field. Do not hallucinate or guess.
-3. **Format**: Output your results as a SINGLE valid JSON object.
-4. **Confidence**: For every field, include a corresponding `[field_name]_confidence` score between 0.0 and 1.0.
-5. **Normalization**:
-   - Dates: Convert to YYYY-MM-DD format if possible.
-   - Amounts: Use numeric floats (e.g., 12.50). Remove currency symbols.
-   - Text: Preserve original casing from the receipt.
+SCHEMA:
+- supplier_name: string
+- address: string
+- date: YYYY-MM-DD
+- total_amount: float
+- vat_amount: float
+- receipt_number: string
+- items: list of [name, quantity, total_price]
 
-FIELDS TO EXTRACT:
-{fields_desc}
+RULES:
+1. ONLY use <target_receipt> data.
+2. Output VALID JSON ONLY.
+3. No preamble or markdown.
 
-Output ONLY the JSON object. No preamble, no markdown formatting, no explanations.
-"""
+JSON OUTPUT:"""
         
-        prompt_template = lc['PromptTemplate'](
-            template=template,
-            input_variables=["context", "receipt_text"]
-        )
-        
-        final_prompt = prompt_template.format(
-            context=context if context.strip() else "No relevant context found.",
-            receipt_text=ocr_text
-        )
+        final_prompt = template
         
         logger.info(f" Generating extraction with Ollama ({self.model_name})...")
         try:
@@ -501,7 +487,7 @@ Output ONLY the JSON object. No preamble, no markdown formatting, no explanation
                         "num_predict": 2048
                     }
                 },
-                timeout=600
+                timeout=300
             )
             response.raise_for_status()
             llm_output = response.json().get('response', '')

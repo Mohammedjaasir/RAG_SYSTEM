@@ -75,9 +75,9 @@ def test_saskas_extraction():
     
     with setup_output_capture(__file__):
         try:
-            # Initialize RAG pipeline
-            print("\n[*] Initializing RAG pipeline...")
-            pipeline = get_rag_pipeline()
+            # Initialize RAG pipeline with phi3.5
+            print("\n[*] Initializing RAG pipeline using phi3.5...")
+            pipeline = get_rag_pipeline(model_name="phi3.5")
             
             # Run extraction
             print("\n[*] Running extraction on Saska's receipt...")
@@ -99,10 +99,10 @@ def test_saskas_extraction():
             print(f"Total: {extracted_data.get('total_amount', 'N/A')}")
 
         
-    except Exception as e:
-        print(f"\n[X] Unexpected error: {e}")
-        import traceback
-        traceback.print_exc()
+        except Exception as e:
+            print(f"\n[X] Unexpected error: {e}")
+            import traceback
+            traceback.print_exc()
 
 if __name__ == "__main__":
     test_saskas_extraction()
