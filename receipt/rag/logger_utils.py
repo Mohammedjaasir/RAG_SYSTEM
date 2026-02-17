@@ -41,8 +41,16 @@ class TerminalTee:
 
     def flush(self):
         """Flush both original terminal and log file."""
-        self.terminal_stdout.flush()
-        self.log.flush()
+        if self.terminal_stdout:
+            self.terminal_stdout.flush()
+        if self.log:
+            self.log.flush()
+
+    def close(self):
+        """Close the log file."""
+        if self.log:
+            self.log.close()
+            self.log = None
 
     def isatty(self):
         """Standard file-like method used by libraries to check for TTY."""

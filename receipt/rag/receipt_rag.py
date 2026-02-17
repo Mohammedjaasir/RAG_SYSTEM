@@ -213,11 +213,16 @@ class ReceiptRAGPipeline:
             
             # Create vector database
             logger.info(" Creating embeddings (this may take a moment)...")
-            self.vector_db = lc['Chroma'].from_documents(
-                documents=chunks,
-                embedding=self.embeddings,
-                persist_directory=str(self.persist_dir)
-            )
+            try:
+                self.vector_db = lc['Chroma'].from_documents(
+                    documents=chunks,
+                    embedding=self.embeddings,
+                    persist_directory=str(self.persist_dir)
+                )
+            except Exception as e:
+                logger.error(f" Failed to create vector database: {e}")
+                logger.warning(" Continuing without knowledge base context")
+                self.vector_db = None
             
             # Save metadata
             with open(self.metadata_file, 'w') as f:
@@ -232,13 +237,17 @@ class ReceiptRAGPipeline:
                 }, f, indent=2)
             
             logger.info(f" Vector DB ready with {self.vector_db._collection.count()} chunks")
-        else:
             # Load existing database
-            self.vector_db = lc['Chroma'](
-                persist_directory=str(self.persist_dir),
-                embedding_function=self.embeddings
-            )
-            logger.info(f" Loaded existing vector DB with {self.vector_db._collection.count()} chunks")
+            try:
+                self.vector_db = lc['Chroma'](
+                    persist_directory=str(self.persist_dir),
+                    embedding_function=self.embeddings
+                )
+                logger.info(f" Loaded existing vector DB with {self.vector_db._collection.count()} chunks")
+            except Exception as e:
+                logger.error(f" Failed to load vector database: {e}")
+                logger.warning(" Continuing without knowledge base context")
+                self.vector_db = None
     
     def clean_database(self):
         """Clear the vector database and metadata to force a rebuild."""
@@ -391,8 +400,8 @@ class ReceiptRAGPipeline:
         date_str = re.sub(r'[^\w\s\-/.]', '', date_str).strip()
         
         try:
-            # Try parsing with dateutil
-            dt = parser.parse(date_str, fuzzy=True, dayfirst=True)
+            # Try parsing with dateutil - prioritize year first for robustness
+            dt = parser.parse(date_str, fuzzy=True, yearfirst=True)
             return dt.strftime('%Y-%m-%d')
         except:
             return date_str
@@ -449,37 +458,55 @@ class ReceiptRAGPipeline:
         - items (list of: name, quantity, unit_price, total_price)
         """
 
+        # Build context block only if context exists
+        context_block = ""
+        if context.strip():
+            context_block = f"""
+<guidelines_and_examples>
+{context}
+</guidelines_and_examples>
+"""
+
         template = f"""You are a professional receipt data extraction expert. 
-Extract data from the <target_receipt> into the JSON format below.
+Extract data ONLY from the <target_receipt> into the JSON format below.{context_block}
 
 <target_receipt>
 {ocr_text}
 </target_receipt>
 
 SCHEMA:
-- supplier_name: string
-- address: string
+- supplier_name: string (The brand/shop name. This is almost always the VERY FIRST word or identifying entity. DO NOT include addresses or line items here.)
+- address: string (Full physical address if found. DO NOT include line items or totals here.)
 - date: YYYY-MM-DD
-- total_amount: float
-- vat_amount: float
-- receipt_number: string
-- items: list of [name, quantity, total_price]
+- total_amount: float (The FINAL BALANCE to be paid. Look for "Total", "Balance Due", "Grand Total". Ignore suggested tips.)
+- vat_amount: float (Tax amount only. Look for "Tax", "VAT", "GST". DO NOT confuse with unit prices or quantity.)
+- receipt_number: string (Unique identifier like Invoice #, Check #, or Receipt ID.)
+- items: list of [name, quantity, total_price] (Extract EVERY SINGLE line item from the receipt. DO NOT skip any. DO NOT stop until you reach the 'Subtotal' or 'Total' section.)
+- extraction_reasoning: string (Briefly cite the exact OCR text used for supplier and total.)
 
 RULES:
-1. ONLY use <target_receipt> data.
-2. Output VALID JSON ONLY.
-3. No preamble or markdown.
-
-JSON OUTPUT:"""
+1. GROUNDING: ONLY use data found in <target_receipt>. 
+2. NO HALLUCINATION: If a value is missing, use null. NEVER use example data from <guidelines_and_examples>.
+3. ITEM SEPARATION: Each line item must be a separate entry in the 'items' list. If different items are on separate lines, extract them as separate entries.
+4. TAX IDENTIFICATION: Carefully distinguish between 'Tax' (vat_amount) and line item prices.
+5. CLEANLINESS: Do not include currency symbols ($) or commas in numeric values.
+6. FORMAT: Output VALID JSON ONLY. No preamble. No afterword.
+"""
         
         final_prompt = template
         
-        logger.info(f" Generating extraction with Ollama ({self.model_name})...")
+        model_to_use = self.model_name
+        if model_to_use == "llama3":
+            model_to_use = "llama3:latest"
+            
+        logger.info(f" Generating extraction with Ollama ({model_to_use})...")
+        logger.info(f" Prompt length: {len(final_prompt)} characters")
+        
         try:
             response = requests.post(
                 f"{self.ollama_url}/api/generate",
                 json={
-                    "model": self.model_name,
+                    "model": model_to_use,
                     "prompt": final_prompt,
                     "stream": False,
                     "options": {
@@ -487,7 +514,7 @@ JSON OUTPUT:"""
                         "num_predict": 2048
                     }
                 },
-                timeout=300
+                timeout=600
             )
             response.raise_for_status()
             llm_output = response.json().get('response', '')
@@ -611,15 +638,31 @@ JSON OUTPUT:"""
         
         # Helper to check if a value exists in OCR text
         def is_in_ocr(value):
-            if value is None or value == 'N/A' or value == '':
+            if value is None or value == 'N/A' or value == '' or value == 0 or value == 0.0:
                 return True
+            
             # Clean string for fuzzy check
             v_str = str(value).strip().lower()
             if not v_str: return True
+            
+            # For numeric values, try to find the exact number
+            if isinstance(value, (int, float)):
+                # Match number with optional currency symbols or commas
+                # e.g., if value is 12.94, look for "12.94" or "12,94"
+                pattern = rf"{value:g}".replace('.', r'[.,]')
+                if re.search(pattern, ocr_text):
+                    return True
+                return False
+
+            # For multiline addresses, check each line
+            if '\n' in v_str:
+                lines = [l.strip() for l in v_str.split('\n') if l.strip()]
+                return all(l.lower() in ocr_text.lower() for l in lines)
+                
             return v_str in ocr_text.lower()
 
-        # 1. Fact Check: Key Fields
-        for field in ['total_amount', 'receipt_number', 'supplier_name']:
+        # 1. Fact Check: Key Fields (including vat_amount)
+        for field in ['total_amount', 'vat_amount', 'receipt_number', 'supplier_name']:
             val = data.get(field)
             # Handle nested production format
             if isinstance(val, dict) and 'value' in val:
@@ -628,25 +671,79 @@ JSON OUTPUT:"""
             if val and not is_in_ocr(val):
                 report.append(f"Potential hallucination: '{field}' value '{val}' not found in raw OCR text.")
 
-        # 2. Fact Check: Items
-        items = data.get('items', [])
-        for item in items:
-            if isinstance(item, dict):
-                name = item.get('name', [])
-                name = name[0] if isinstance(name, list) and name else 'N/A'
-                if name != 'N/A' and not is_in_ocr(name):
-                    # Be slightly more lenient with names as OCR may have broken lines
-                    # Only report if a large chunk of the name is missing
-                    if len(name) > 5 and not any(part.lower() in ocr_text.lower() for part in name.split() if len(part) > 3):
-                        report.append(f"Potential hallucination: Item name '{name}' not grounded in OCR text.")
+        # 1.1 Specific Check: Leaked Items in Address/Supplier
+        for field in ['address', 'supplier_name']:
+            val = str(data.get(field, '')).lower()
+            if '$' in val or 'amt' in val or 'qty' in val or any(f"${i}" in val for i in range(10)):
+                report.append(f"Potential hallucination: '{field}' seems to contain line item data (prices/amounts).")
 
-        # 3. Context Leak Check
-        # Check if any extracted values appear in the context but NOT in OCR
-        # This prevents the "Wagamama effect"
-        example_names = ['wagamama', 'tesco', 'sainsbury', 'starbucks', 'mcdonald']
-        for name in example_names:
-            if name in str(data).lower() and name not in ocr_text.lower():
-                report.append(f"Context Leak: Detected example-related name '{name}' in extraction result.")
+        # 2. Fact Check: Items (Names and Prices)
+        items = data.get('items', [])
+        calculated_subtotal = 0.0
+        
+        for item in items:
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                # Handles [name, price] or [name, qty, price] formats
+                name = str(item[0])
+                price = item[-1]
+            elif isinstance(item, dict):
+                name = item.get('name', 'N/A')
+                if isinstance(name, list) and name: name = name[0]
+                price = item.get('total_price', item.get('price', 0.0))
+                if isinstance(price, dict) and 'value' in price: price = price['value']
+            else:
+                continue
+
+            # Grounding for name
+            if name != 'N/A' and not is_in_ocr(name):
+                # Only report if a large chunk of the name is missing
+                words = [w for w in str(name).split() if len(w) > 3]
+                if words and not any(w.lower() in ocr_text.lower() for w in words):
+                    report.append(f"Potential hallucination: Item name '{name}' not grounded in OCR text.")
+
+            # Grounding for price
+            if price and not is_in_ocr(price):
+                report.append(f"Potential hallucination: Item price '{price}' for '{name}' not found in OCR text.")
+            
+            try:
+                calculated_subtotal += float(price) if price else 0.0
+            except (ValueError, TypeError):
+                pass
+
+        # 3. Sanity Check: Sum of Items + Tax vs Total
+        total_amt = data.get('total_amount')
+        if isinstance(total_amt, dict): total_amt = total_amt.get('value')
+        
+        tax_amt = data.get('vat_amount', 0.0)
+        if isinstance(tax_amt, dict): tax_amt = tax_amt.get('value')
+        
+        try:
+            total_float = float(total_amt) if total_amt else 0.0
+            tax_float = float(tax_amt) if tax_amt else 0.0
+            
+            # If we have items, check if they add up reasonably to the total
+            if items and total_float > 0:
+                # Allow for rounding or small discrepancies (like service charges not extracted)
+                # But if items + tax is significantly different from total, flag it
+                diff = abs((calculated_subtotal + tax_float) - total_float)
+                if diff > 1.0: # More than 1.00 currency unit difference
+                    # Only report if the difference is more than 0.1% of total (to avoid rounding issues)
+                    if diff > (total_float * 0.05): # 5% threshold
+                         report.append(f"Potential hallucination/imprecision: Sum of items ({calculated_subtotal:.2f}) + tax ({tax_float:.2f}) does not match Total ({total_float:.2f}).")
+        except (ValueError, TypeError):
+            pass
+
+        # 4. Context Leak & Placeholder Check
+        placeholder_blacklist = [
+            'freshmart', 'fresh mart', 'anytown', 'main street', '123 luxury way',
+            'organic apples', 'whole wheat bread', 'grande latte', 'wagamama',
+            'tesco', 'sainsbury', 'starbucks', 'mcdonald'
+        ]
+        
+        data_str_lower = str(data).lower()
+        for p in placeholder_blacklist:
+            if p in data_str_lower and p not in ocr_text.lower():
+                report.append(f"Hallucination Detected: Found common placeholder/example value '{p}' not present in OCR.")
 
         return report
     
@@ -742,7 +839,7 @@ JSON OUTPUT:"""
         json_path = target_dir / f"{base_name}_result.json"
         with open(json_path, "w", encoding='utf-8') as f:
             json.dump(result.extracted_data, f, indent=2)
-        print(f" [✓] Saved JSON results to: {json_path}")
+        print(f" [OK] Saved JSON results to: {json_path}")
         
         # Save formatted text summary
         txt_path = target_dir / f"{base_name}_summary.txt"
@@ -783,7 +880,9 @@ JSON OUTPUT:"""
                 f.write(f"Date: {date_val}\n")
                 
             f.write(f"Total Amount: {get_val('total_amount')}\n")
-            f.write(f"Tax Amount: {get_val('tax_amount') or get_val('vat_amount')}\n\n")
+            tax_val = get_val('vat_amount')
+            if tax_val == 'N/A': tax_val = get_val('tax_amount')
+            f.write(f"Tax Amount: {tax_val}\n\n")
             
             f.write("Items:\n")
             for item in data.get('items', []):

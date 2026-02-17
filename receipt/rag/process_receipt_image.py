@@ -9,7 +9,9 @@ import json
 import logging
 from pathlib import Path
 
-# Add current directory to path
+# Add necessary directories to path
+root_dir = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(root_dir))
 sys.path.insert(0, str(Path(__file__).parent))
 
 from ocr_client import get_ocr_client
@@ -38,7 +40,7 @@ def process_image(image_path):
             print(f"[*] Processing image via OCR service ({ocr_client.base_url})...")
             ocr_result = ocr_client.process_image(p)
             
-            print(f"\n[✓] OCR complete! Extracted {len(ocr_result.text)} characters.")
+            print(f"\n[OK] OCR complete! Extracted {len(ocr_result.text)} characters.")
             print("-" * 70)
             print("OCR TEXT PREVIEW:")
             print(ocr_result.text[:500] + "..." if len(ocr_result.text) > 500 else ocr_result.text)
@@ -64,19 +66,19 @@ def process_image(image_path):
                 if isinstance(val, dict) and 'value' in val:
                     return val['value']
                 return val
-
+ 
             # 1. Header Information
-            print(f"\n[✓] Confidence Score: {rag_result.confidence:.2%}")
+            print(f"\n[OK] Confidence Score: {rag_result.confidence:.2%}")
             
             # Hallucination Check - Terminal Display
             if rag_result.hallucination_report:
                 print("\n" + "!"*70)
-                print("  ⚠️  HALLUCINATION WARNING")
+                print("  [!] HALLUCINATION WARNING")
                 for warning in rag_result.hallucination_report:
                     print(f"  [X] {warning}")
                 print("!"*70)
             else:
-                print("\n[✓] Hallucination Check: PASSED (Data is grounded in OCR text)")
+                print("\n[OK] Hallucination Check: PASSED (Data is grounded in OCR text)")
                 
             print(f"    Supplier:         {get_v('supplier_name')}")
             print(f"    Address:          {get_v('address')}")
@@ -88,7 +90,7 @@ def process_image(image_path):
             print(f"    Date:             {date_str}")
             
             # 2. Line Items
-            print("\n[✓] Extracted Items:")
+            print("\n[OK] Extracted Items:")
             items = data.get('items', [])
             if items:
                 print(f"    {'QTY':<5} {'ITEM DESCRIPTION':<40} {'PRICE':>10}")
@@ -104,9 +106,9 @@ def process_image(image_path):
                         print(f"    {str(qty):<5} {str(name)[:40]:<40} {str(price_val):>10}")
             else:
                 print("    No items extracted.")
-
+ 
             # 3. Financial Totals
-            print("\n[✓] Financial Totals:")
+            print("\n[OK] Financial Totals:")
             print(f"    Subtotal:         {get_v('net_amount') or get_v('subtotal')}")
             print(f"    Tax/VAT:          {get_v('vat_amount') or get_v('total_tax_amount')}")
             print(f"    TOTAL AMOUNT:     {get_v('total_amount')}")
@@ -118,10 +120,10 @@ def process_image(image_path):
             rag_pipeline.save_result_to_file(rag_result, base_name)
             
             print("\n" + "="*70)
-            print(f"[✓] Process completed successfully!")
-            print(f"[✓] Terminal log: {p.stem}_output.txt")
-            print(f"[✓] Data results: {p.stem}_result.json")
-            print(f"[✓] Data summary: {p.stem}_summary.txt")
+            print(f"[OK] Process completed successfully!")
+            print(f"[OK] Terminal log: {p.stem}_output.txt")
+            print(f"[OK] Data results: {p.stem}_result.json")
+            print(f"[OK] Data summary: {p.stem}_summary.txt")
             print("="*70)
 
         except Exception as e:

@@ -84,9 +84,14 @@ def test_diverse_receipt():
             items = data.get('items', [])
             if items:
                 for item in items:
-                    name = item.get('name', item.get('description', 'N/A'))
-                    price = item.get('total_price', item.get('item_amount', 'N/A'))
-                    print(f"  - {name}: {price}")
+                    if isinstance(item, list):
+                        name = item[0] if len(item) > 0 else 'N/A'
+                        price = item[2] if len(item) > 2 else 'N/A'
+                        print(f"  - {name}: {price}")
+                    elif isinstance(item, dict):
+                        name = item.get('name', item.get('description', 'N/A'))
+                        price = item.get('total_price', item.get('item_amount', 'N/A'))
+                        print(f"  - {name}: {price}")
             else:
                 print("  No items found.")
                 
