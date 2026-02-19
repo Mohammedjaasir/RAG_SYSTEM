@@ -371,34 +371,279 @@ class ReceiptRAGPipeline:
 
     def _normalize_extracted_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize extracted fields (dates, amounts, etc.)."""
+        import re
+
+        # Fields that are ONLY valid inside the items list, never at top level
+        _item_only_keys = {'quantity', 'qty', 'unit_price'}
+
         normalized = {}
         for key, value in data.items():
+            # Drop stray item-column fields that leaked to top-level
+            if key in _item_only_keys:
+                continue
+
             # Already normalized or confidence field
             if key.endswith("_confidence"):
                 normalized[key] = value
                 continue
-                
+
             # Normalize dates
             if key in ['date', 'receipt_date']:
                 normalized[key] = self._normalize_date(value)
-            # Normalize amounts
-            elif any(k in key for k in ['amount', 'price', 'total', 'subtotal', 'tax', 'vat']):
+            # Normalize monetary amounts (but NOT generic 'total_price' at top-level — item field)
+            elif key == 'total_price':
+                # top-level total_price is a leaked item field — skip it
+                continue
+            elif any(k in key for k in ['amount', 'subtotal', 'tax', 'vat']) or key == 'total_amount':
                 normalized[key] = self._normalize_amount(value)
+            elif key == 'receipt_number':
+                # Sanitize: receipt_number should be a short alphanumeric ID.
+                # Wipe only if clearly contaminated with item/table data.
+                val_str = str(value) if value is not None else ''
+                dirty = (
+                    len(val_str) > 120   # too long for any real receipt/invoice number
+                    or any(tok in val_str.upper() for tok in ['ITEM', 'QTY', 'PRICE', 'AMUUNT', 'AMOUNT'])
+                    or (re.search(r'[\[\{]', val_str) and len(val_str) > 30)  # list/dict AND long
+                )
+                normalized[key] = None if dirty else value
+            elif key == 'items':
+                normalized[key] = self._normalize_items(value)
             else:
                 normalized[key] = value
         return normalized
+
+    def _normalize_items(self, items_raw) -> list:
+        """
+        Normalize the 'items' field into a consistent list of dicts:
+          [{"name": str, "quantity": str|int, "total_price": float|str}, ...]
+
+        Handles every shape the LLM produces:
+          - list of dicts  : [{"name":..., "quantity":..., "total_price":...}]
+          - list of lists  : [[name, qty, price], [name, price], ...]
+          - list of strings: ["Item 1 $5.00", ...]
+          - None / non-list: returns []
+        """
+        import re
+        if not items_raw or not isinstance(items_raw, list):
+            return []
+
+        normalised = []
+        for item in items_raw:
+            if isinstance(item, dict):
+                # Standard dict format — standardise key names
+                name = item.get('name') or item.get('description') or item.get('item') or 'N/A'
+                if isinstance(name, list):
+                    name = name[0] if name else 'N/A'
+                qty = item.get('quantity') or item.get('qty') or '1'
+                price = (
+                    item.get('total_price')
+                    or item.get('price')
+                    or item.get('amount')
+                    or item.get('unit_price')
+                )
+                if isinstance(price, dict):
+                    price = price.get('value', price)
+                normalised.append({'name': str(name), 'quantity': qty, 'total_price': price})
+
+            elif isinstance(item, (list, tuple)):
+                # [name, qty, price] or [name, price] or [name, {dict}]
+                parts = list(item)
+                if not parts:
+                    continue
+                name = str(parts[0]) if parts else 'N/A'
+                # Skip items whose "name" is actually a dict (malformed LLM output)
+                if parts[0] and isinstance(parts[0], dict):
+                    continue
+                # Find price: last numeric-looking entry
+                price = None
+                qty = '1'
+                for part in reversed(parts[1:]):
+                    if isinstance(part, (int, float)):
+                        price = part
+                        break
+                    if isinstance(part, str):
+                        cleaned = re.sub(r'[^\d.]', '', part)
+                        if cleaned:
+                            try:
+                                price = float(cleaned)
+                                break
+                            except ValueError:
+                                pass
+                    if isinstance(part, dict):
+                        price = part.get('total_price') or part.get('price') or part.get('value')
+                        qty = part.get('quantity') or part.get('qty') or '1'
+                        break
+                if len(parts) >= 3 and not isinstance(parts[1], dict):
+                    qty = parts[1]
+                normalised.append({'name': name, 'quantity': qty, 'total_price': price})
+
+            elif isinstance(item, str) and item.strip():
+                # Plain string like "Masala Dosa 2 x 59.00"
+                normalised.append({'name': item.strip(), 'quantity': '1', 'total_price': None})
+
+        # Filter out entries that are clearly metadata rows (GST, dates, ref numbers)
+        skip_names = {'gst', 'cgst', 'sgst', 'vat', 'tax', 'total', 'subtotal',
+                      'grand total', 'discount', 'service charge'}
+        normalised = [
+            e for e in normalised
+            if str(e.get('name', '')).strip().lower() not in skip_names
+            and len(str(e.get('name', '')).strip()) > 1
+        ]
+        return normalised
+
+    def _ocr_fallback_items(self, ocr_text: str) -> list:
+        """
+        Deterministic (regex-only) item extractor for use when the LLM
+        fails to produce an items list.
+
+        This handles two common OCR scrambling layouts:
+          A) Interleaved:  "Masala Dosa  2  59.00  118.00  Vada  1  25.00  25.00"
+          B) Separated:    "2 59.00 118.00  1 69.00 69.00  Masala Dosa  Vada"
+
+        Strategy:
+          1. Isolate the items block (between ITEM/QTY/PRICE header and TOTAL footer).
+          2. Separate the block into a numeric zone and a name zone.
+          3. In the numeric zone, extract qty+unit+total triplets.
+          4. In the name zone, split on capitalised-word boundaries to recover names.
+          5. Zip triplets with names and validate prices against the raw OCR.
+        """
+        import re
+
+        # ── 1. Isolate the items block ──────────────────────────────────────────
+        text = ' '.join(ocr_text.split())   # flatten
+
+        # Header: the ITEM/QTY/PRICE/AMUUNT header row
+        header_pat = re.compile(r'\b(?:ITEM|QTY|QUANTITY|PRICE|AMUUNT|AMOUNT)\b')
+        # Footer: first TOTAL / CGST / SGST / TAX / GRAND after items
+        footer_pat = re.compile(r'\b(?:SUBTOTAL|GRAND TOTAL|TOTAL|CGST|SGST|GST|VAT|TAX|TOKEN)\b',
+                                re.I)
+
+        section = text
+        hm = header_pat.search(text)
+        if hm:
+            # skip all consecutive header words
+            rest = text[hm.start():]
+            # skip every consecutive QTY/ITEM/PRICE/AMUUNT word
+            head_skip = re.compile(r'^(?:ITEM|QTY|QUANTITY|PRICE|AMUUNT|AMOUNT)\s*', re.I)
+            while head_skip.match(rest):
+                rest = head_skip.sub('', rest, count=1)
+            section = rest
+
+        fm = footer_pat.search(section)
+        if fm:
+            section = section[:fm.start()]
+
+        section = section.strip()
+        if not section:
+            return []
+
+        # ── 2. Determine layout: split section into numeric zone + name zone ────
+        # A number token — integer or decimal
+        num_tok = re.compile(r'^\d+(?:[.,]\d+)?$')
+        tokens = section.split()
+
+        # Locate the boundary where tokens switch from mostly-numeric to mostly-alpha
+        # Find the last consecutive run of numeric tokens
+        last_num_idx = -1
+        for idx, tok in enumerate(tokens):
+            if num_tok.match(tok):
+                last_num_idx = idx
+
+        if last_num_idx == -1:
+            # No numbers found — cannot extract
+            return []
+
+        num_tokens  = [t for t in tokens[:last_num_idx + 1] if num_tok.match(t)]
+        name_tokens = [t for t in tokens[last_num_idx + 1:] if not num_tok.match(t)]
+
+        # ── 3. Extract numeric triplets [qty, unit_price, total_price] ──────────
+        nums = []
+        for t in num_tokens:
+            try:
+                nums.append(float(t.replace(',', '.')))
+            except ValueError:
+                pass
+
+        if not nums:
+            return []
+
+        # ── 3. Extract triplets using qty-marker strategy ────────────────────────
+        # A "qty marker" is a number that is a small whole integer (1-20) that
+        # precedes two price values. We scan left-to-right building triplets.
+        triplets = []
+
+        def is_qty(n: float) -> bool:
+            """Small whole integer most likely to be a quantity."""
+            return n == int(n) and 1 <= int(n) <= 20
+
+        i = 0
+        while i < len(nums):
+            if is_qty(nums[i]) and i + 2 < len(nums):
+                q  = int(nums[i])
+                u  = nums[i + 1]
+                tp = nums[i + 2]
+                # Sanity: unit_price and total_price should be positive decimals > quantity
+                if u > 0 and tp > 0:
+                    triplets.append({'quantity': q, 'unit_price': u, 'total_price': tp})
+                    i += 3
+                    continue
+            # Fallback: treat as (unit_price, total_price) pair, qty=1
+            if i + 1 < len(nums):
+                triplets.append({'quantity': 1, 'unit_price': nums[i], 'total_price': nums[i+1]})
+                i += 2
+            else:
+                # Lone number — single-item with no unit price
+                triplets.append({'quantity': 1, 'unit_price': None, 'total_price': nums[i]})
+                i += 1
+
+        # ── 4. Split name blob into individual names ─────────────────────────────
+        # Split on Capital-letter word boundaries: "MasalaDosa VadaPav" → items
+        # Also try splitting every N words based on triplet count
+        full_name_str = ' '.join(name_tokens)
+        n_items = len(triplets)
+
+        if n_items > 0 and len(name_tokens) >= n_items:
+            words_per_name = len(name_tokens) // n_items
+            names = []
+            for i in range(n_items):
+                start = i * words_per_name
+                end = start + words_per_name if i < n_items - 1 else len(name_tokens)
+                names.append(' '.join(name_tokens[start:end]))
+        else:
+            names = [full_name_str] * n_items
+
+        # ── 5. Zip and ground-check ───────────────────────────────────────────────
+        items = []
+        for i, triplet in enumerate(triplets):
+            name = names[i] if i < len(names) else 'Unknown'
+            price_str = f"{triplet['total_price']:g}"
+            # Only include if the price is actually in the raw OCR text
+            if price_str in ocr_text or price_str.replace('.', ',') in ocr_text:
+                items.append({
+                    'name': name.strip(),
+                    'quantity': triplet['quantity'],
+                    'unit_price': triplet['unit_price'],
+                    'total_price': triplet['total_price'],
+                })
+            else:
+                logger.warning(
+                    f" OCR fallback: skipping ungrounded price {price_str} for '{name}'"
+                )
+
+        return items
+
 
     def _normalize_date(self, date_str: Any) -> Optional[str]:
         """Normalize date strings to YYYY-MM-DD."""
         if not isinstance(date_str, str) or not date_str:
             return date_str
-            
+
         import re
         from dateutil import parser
-        
+
         # Remove common receipt artifacts
         date_str = re.sub(r'[^\w\s\-/.]', '', date_str).strip()
-        
+
         try:
             # Try parsing with dateutil - prioritize year first for robustness
             dt = parser.parse(date_str, fuzzy=True, yearfirst=True)
@@ -482,15 +727,18 @@ SCHEMA:
 - vat_amount: float (Tax amount only. Look for "Tax", "VAT", "GST". DO NOT confuse with unit prices or quantity.)
 - receipt_number: string (Unique identifier like Invoice #, Check #, or Receipt ID.)
 - items: list of [name, quantity, total_price] (Extract EVERY SINGLE line item from the receipt. DO NOT skip any. DO NOT stop until you reach the 'Subtotal' or 'Total' section.)
-- extraction_reasoning: string (Briefly cite the exact OCR text used for supplier and total.)
+- extraction_reasoning: string (Briefly cite the exact OCR text used for supplier and total.
 
 RULES:
-1. GROUNDING: ONLY use data found in <target_receipt>. 
-2. NO HALLUCINATION: If a value is missing, use null. NEVER use example data from <guidelines_and_examples>.
-3. ITEM SEPARATION: Each line item must be a separate entry in the 'items' list. If different items are on separate lines, extract them as separate entries.
-4. TAX IDENTIFICATION: Carefully distinguish between 'Tax' (vat_amount) and line item prices.
-5. CLEANLINESS: Do not include currency symbols ($) or commas in numeric values.
-6. FORMAT: Output VALID JSON ONLY. No preamble. No afterword.
+1. GROUNDING: ONLY use data explicitly found in <target_receipt>. Every value you return must come from a specific word or number in <target_receipt>.
+2. NO HALLUCINATION: If a field is missing or ambiguous, set it to null. NEVER copy or adapt values from <guidelines_and_examples>.
+3. DO NOT INFER: Do not guess dates, names, or amounts that are not clearly stated. Use null rather than an approximation.
+4. NO ARITHMETIC: Do not calculate or derive the total from line items — read it directly from the receipt text (e.g. the line labelled "Total" or "Balance Due").
+5. CONTEXT IS REFERENCE ONLY: <guidelines_and_examples> shows JSON structure only. NEVER extract supplier names, amounts, or item names from it.
+6. ITEM SEPARATION: Each line item must be a separate entry in 'items'. Stop extracting items when you reach 'Subtotal' or 'Total'.
+7. TAX IDENTIFICATION: Distinguish clearly between 'Tax'/'VAT'/'GST' (→ vat_amount) and line item prices.
+8. CLEANLINESS: No currency symbols or commas in numeric fields.
+9. FORMAT: Output VALID JSON ONLY. No preamble. No afterword.
 """
         
         final_prompt = template
@@ -510,7 +758,8 @@ RULES:
                     "prompt": final_prompt,
                     "stream": False,
                     "options": {
-                        "temperature": 0.1,
+                        "temperature": 0,
+                        "seed": 42,
                         "num_predict": 2048
                     }
                 },
@@ -555,6 +804,14 @@ RULES:
         # Step 3: Parsing & Normalization
         data = self._parse_llm_response(raw_output)
         data = self._normalize_extracted_data(data)
+
+        # Step 3b: OCR fallback for items when LLM returned none
+        if not data.get('items'):
+            fallback_items = self._ocr_fallback_items(ocr_text)
+            if fallback_items:
+                data['items'] = fallback_items
+                logger.info(f" OCR fallback extracted {len(fallback_items)} item(s)")
+
         
         # Merge results, but keep track of failures
         merged_data = data
@@ -635,43 +892,68 @@ RULES:
         """
         report = []
         import re
-        
+
+        ocr_lower = ocr_text.lower()
+
+        def _normalise_numeric_str(s: str) -> str:
+            """Strip currency symbols and normalise comma/dot so 1,80 == 1.80."""
+            s = re.sub(r'[^\d.,]', '', s)
+            # European format: 1.234,56 -> replace . then ,
+            if re.search(r'\d\.\d{3},\d', s):
+                s = s.replace('.', '').replace(',', '.')
+            else:
+                s = s.replace(',', '.')
+            return s
+
         # Helper to check if a value exists in OCR text
         def is_in_ocr(value):
-            if value is None or value == 'N/A' or value == '' or value == 0 or value == 0.0:
+            if value is None or value == 'N/A' or value == '':
                 return True
-            
-            # Clean string for fuzzy check
-            v_str = str(value).strip().lower()
-            if not v_str: return True
-            
-            # For numeric values, try to find the exact number
+
+            # Numeric grounding — normalise both sides before comparing
             if isinstance(value, (int, float)):
-                # Match number with optional currency symbols or commas
-                # e.g., if value is 12.94, look for "12.94" or "12,94"
-                pattern = rf"{value:g}".replace('.', r'[.,]')
-                if re.search(pattern, ocr_text):
+                if value == 0 or value == 0.0:
                     return True
+                # Build a pattern that matches the number with optional surrounding currency/comma variation
+                # e.g. 1.80 matches "1.80", "1,80", "£1.80"
+                num_str = f"{value:g}"  # e.g. "1.8" or "93.58"
+                # Also produce comma variant
+                comma_variant = num_str.replace('.', ',')
+                # Regex: optional non-digit prefix, then the number
+                for variant in [num_str, comma_variant]:
+                    if re.search(re.escape(variant), ocr_text):
+                        return True
                 return False
+
+            v_str = str(value).strip().lower()
+            if not v_str:
+                return True
 
             # For multiline addresses, check each line
             if '\n' in v_str:
-                lines = [l.strip() for l in v_str.split('\n') if l.strip()]
-                return all(l.lower() in ocr_text.lower() for l in lines)
-                
-            return v_str in ocr_text.lower()
+                lines = [line.strip() for line in v_str.split('\n') if line.strip()]
+                return all(line in ocr_lower for line in lines)
 
-        # 1. Fact Check: Key Fields (including vat_amount)
+            # For string values that look like numbers (e.g. "1.80"), normalise
+            normalised = _normalise_numeric_str(v_str)
+            if normalised and re.match(r'^[\d.]+$', normalised):
+                try:
+                    num_val = float(normalised)
+                    return is_in_ocr(num_val)
+                except ValueError:
+                    pass
+
+            return v_str in ocr_lower
+
+        # 1. Fact Check: Key Fields
         for field in ['total_amount', 'vat_amount', 'receipt_number', 'supplier_name']:
             val = data.get(field)
-            # Handle nested production format
             if isinstance(val, dict) and 'value' in val:
                 val = val['value']
-            
             if val and not is_in_ocr(val):
                 report.append(f"Potential hallucination: '{field}' value '{val}' not found in raw OCR text.")
 
-        # 1.1 Specific Check: Leaked Items in Address/Supplier
+        # 1.1 Leaked item data in address/supplier fields
         for field in ['address', 'supplier_name']:
             val = str(data.get(field, '')).lower()
             if '$' in val or 'amt' in val or 'qty' in val or any(f"${i}" in val for i in range(10)):
@@ -680,70 +962,89 @@ RULES:
         # 2. Fact Check: Items (Names and Prices)
         items = data.get('items', [])
         calculated_subtotal = 0.0
-        
+
         for item in items:
             if isinstance(item, (list, tuple)) and len(item) >= 2:
-                # Handles [name, price] or [name, qty, price] formats
                 name = str(item[0])
                 price = item[-1]
             elif isinstance(item, dict):
                 name = item.get('name', 'N/A')
-                if isinstance(name, list) and name: name = name[0]
+                if isinstance(name, list) and name:
+                    name = name[0]
                 price = item.get('total_price', item.get('price', 0.0))
-                if isinstance(price, dict) and 'value' in price: price = price['value']
+                if isinstance(price, dict) and 'value' in price:
+                    price = price['value']
             else:
                 continue
 
-            # Grounding for name
+            # Grounding for name: only flag if no word from the name appears in OCR
             if name != 'N/A' and not is_in_ocr(name):
-                # Only report if a large chunk of the name is missing
                 words = [w for w in str(name).split() if len(w) > 3]
-                if words and not any(w.lower() in ocr_text.lower() for w in words):
+                if words and not any(w.lower() in ocr_lower for w in words):
                     report.append(f"Potential hallucination: Item name '{name}' not grounded in OCR text.")
 
             # Grounding for price
             if price and not is_in_ocr(price):
                 report.append(f"Potential hallucination: Item price '{price}' for '{name}' not found in OCR text.")
-            
+
             try:
                 calculated_subtotal += float(price) if price else 0.0
             except (ValueError, TypeError):
                 pass
 
-        # 3. Sanity Check: Sum of Items + Tax vs Total
+        # 3. Sanity Check: Sum of Items + Tax ≈ Total
         total_amt = data.get('total_amount')
-        if isinstance(total_amt, dict): total_amt = total_amt.get('value')
-        
+        if isinstance(total_amt, dict):
+            total_amt = total_amt.get('value')
         tax_amt = data.get('vat_amount', 0.0)
-        if isinstance(tax_amt, dict): tax_amt = tax_amt.get('value')
-        
+        if isinstance(tax_amt, dict):
+            tax_amt = tax_amt.get('value')
+
         try:
             total_float = float(total_amt) if total_amt else 0.0
             tax_float = float(tax_amt) if tax_amt else 0.0
-            
-            # If we have items, check if they add up reasonably to the total
             if items and total_float > 0:
-                # Allow for rounding or small discrepancies (like service charges not extracted)
-                # But if items + tax is significantly different from total, flag it
                 diff = abs((calculated_subtotal + tax_float) - total_float)
-                if diff > 1.0: # More than 1.00 currency unit difference
-                    # Only report if the difference is more than 0.1% of total (to avoid rounding issues)
-                    if diff > (total_float * 0.05): # 5% threshold
-                         report.append(f"Potential hallucination/imprecision: Sum of items ({calculated_subtotal:.2f}) + tax ({tax_float:.2f}) does not match Total ({total_float:.2f}).")
+                if diff > 1.0 and diff > (total_float * 0.05):
+                    report.append(
+                        f"Potential hallucination/imprecision: Sum of items ({calculated_subtotal:.2f}) "
+                        f"+ tax ({tax_float:.2f}) does not match Total ({total_float:.2f})."
+                    )
         except (ValueError, TypeError):
             pass
 
-        # 4. Context Leak & Placeholder Check
+        # 4. Context-Leak Check
+        # Any non-trivial token that appears in KB context but NOT in OCR text is suspicious
+        if context.strip():
+            context_tokens = set(re.findall(r'\b[a-zA-Z]{5,}\b', context.lower()))
+            # Remove tokens that also appear in OCR (legitimate overlap)
+            ocr_tokens = set(re.findall(r'\b[a-zA-Z]{5,}\b', ocr_lower))
+            context_only_tokens = context_tokens - ocr_tokens
+
+            data_str_lower = str(data).lower()
+            # Only flag if a context-only token appears in the *values* we extracted
+            for tok in context_only_tokens:
+                if tok in data_str_lower:
+                    # Avoid noisy single-word matches for very common words
+                    if len(tok) >= 6:
+                        report.append(
+                            f"Potential context leak: '{tok}' appears in KB examples but not in OCR — "
+                            "may have been copied from a context example."
+                        )
+                        break  # Report once per extraction to avoid flooding
+
+        # 5. Hard-coded placeholder blacklist (fast path)
         placeholder_blacklist = [
             'freshmart', 'fresh mart', 'anytown', 'main street', '123 luxury way',
             'organic apples', 'whole wheat bread', 'grande latte', 'wagamama',
-            'tesco', 'sainsbury', 'starbucks', 'mcdonald'
+            'tesco', 'sainsbury', 'starbucks', 'mcdonald',
         ]
-        
         data_str_lower = str(data).lower()
-        for p in placeholder_blacklist:
-            if p in data_str_lower and p not in ocr_text.lower():
-                report.append(f"Hallucination Detected: Found common placeholder/example value '{p}' not present in OCR.")
+        for placeholder in placeholder_blacklist:
+            if placeholder in data_str_lower and placeholder not in ocr_lower:
+                report.append(
+                    f"Hallucination Detected: Found common placeholder/example value '{placeholder}' not present in OCR."
+                )
 
         return report
     
