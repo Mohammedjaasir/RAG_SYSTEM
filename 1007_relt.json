@@ -1,0 +1,32 @@
+{
+  "supplier_name": "Social Kitchen",
+  "address": "West Sambandam Road Coimbatore RS Puram-641002",
+  "date": "2026-01-25",
+  "total_amount": 44.0,
+  "vat_amount": null,
+  "receipt_number": null,
+  "extraction_reasoning": "Supplier name and total amount are explicitly stated in the receipt text; date is found at the end of a timestamped line item list.",
+  "items": [
+    {
+      "name": "Udupi Pudi Masala",
+      "quantity": 2,
+      "unit_price": 59.0,
+      "total_price": 118.0
+    },
+    {
+      "name": "Dosa Rayi masala",
+      "quantity": 1,
+      "unit_price": 69.0,
+      "total_price": 69.0
+    },
+    {
+      "name": "Dosa Avil Milk Shakes",
+      "quantity": 1,
+      "unit_price": 69.0,
+      "total_price": 69.0
+    }
+  ],
+  "_hallucination_report": [
+    "Potential hallucination/imprecision: Sum of items (256.00) + tax (0.00) does not match Total (44.00)."
+  ]
+}

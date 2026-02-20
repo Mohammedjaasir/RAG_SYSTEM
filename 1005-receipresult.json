@@ -1,0 +1,26 @@
+{
+  "supplier_name": "SASKA'S",
+  "address": "(858)_488-7311 San Diego CA 92109",
+  "date": "2017-08-15",
+  "total_amount": 179.94,
+  "vat_amount": 5.0,
+  "receipt_number": "2",
+  "items": [
+    {
+      "name": "Blackhouse \"Cowboy\" 16oz Ribeye Make It Blue Add Lobster CK Manhattan (2)",
+      "quantity": 2,
+      "total_price": 85.0
+    },
+    {
+      "name": "Whistle Pig Rye 10yr",
+      "quantity": 2,
+      "total_price": 40.0
+    },
+    {
+      "name": "BMOD Up \"Duke\" 16oz Top Sirloin Make It Blue Substitute Lobster CK Manhattan (2)",
+      "quantity": 2,
+      "total_price": 45.0
+    }
+  ],
+  "extraction_reasoning": "Extracted from the line items and totals in <target_receipt>."
+}

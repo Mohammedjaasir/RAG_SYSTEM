@@ -1,0 +1,24 @@
+{
+  "supplier_name": "ESR Pay at Pump",
+  "address": "",
+  "date": "2021-07-13",
+  "total_amount": 90.01,
+  "vat_amount": 15.0,
+  "receipt_number": null,
+  "items": [
+    {
+      "name": "N/A",
+      "quantity": "1",
+      "total_price": 66.23
+    },
+    {
+      "name": "N/A",
+      "quantity": "1",
+      "total_price": 90.01
+    }
+  ],
+  "extraction_reasoning": "Total amount and vat are explicitly stated at the end of receipt; items' total price is calculated by subtracting one item from the 'total'. Supplier name found in line with auth code.",
+  "_hallucination_report": [
+    "Potential hallucination/imprecision: Sum of items (156.24) + tax (15.00) does not match Total (90.01)."
+  ]
+}

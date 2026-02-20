@@ -1,0 +1,24 @@
+{
+  "supplier_name": "Whitbread Group PLC",
+  "address": "Whitbread Court, Houghton Hall Business Park, Porz Avenue, Dunstable LU5 5XE.",
+  "date": "2025-12-01",
+  "total_amount": 54.0,
+  "vat_amount": 20.0,
+  "receipt_number": "AAFI29713",
+  "items": [
+    {
+      "name": "N/A",
+      "quantity": "1",
+      "total_price": 45.0
+    },
+    {
+      "name": "Digital Visa Prepayment (20%) Net Amount GBP",
+      "quantity": "1",
+      "total_price": 20.0
+    }
+  ],
+  "extraction_reasoning": "The supplier name 'Whitbread Group PLC' and total amount are explicitly stated in the receipt text as 'GBP VATA Amount GBP Gross Amount GBP'. The vat amount is extracted from lines containing 'VAT', which amounts to 20.00.",
+  "_hallucination_report": [
+    "Potential hallucination/imprecision: Sum of items (65.00) + tax (20.00) does not match Total (54.00)."
+  ]
+}
