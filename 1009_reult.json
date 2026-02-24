@@ -1,0 +1,32 @@
+{
+  "supplier_name": "TESCO",
+  "address": null,
+  "date": "2006-05-30",
+  "total_amount": 14.89,
+  "vat_amount": 1.79,
+  "receipt_number": "258102411063857",
+  "items": [
+    {
+      "name": "CHERRY B/WELLS LEMON SLICES JAM TARTS",
+      "quantity": "@ 2@",
+      "total_price": "\u00a30.38"
+    },
+    {
+      "name": "ORANGE JUICE",
+      "quantity": "* 3@",
+      "total_price": "\u00a31.44"
+    },
+    {
+      "name": "BAKED BEANS",
+      "quantity": "* 5@",
+      "total_price": "\u00a35.20"
+    }
+  ],
+  "extraction_reasoning": "Supplier name and total amount were explicitly stated in the receipt text.",
+  "_hallucination_report": [
+    "Potential hallucination: 'total_amount' value '14.89' not found in raw OCR text.",
+    "Potential hallucination: 'vat_amount' value '1.79' not found in raw OCR text.",
+    "Potential hallucination: 'receipt_number' value '258102411063857' not found in raw OCR text.",
+    "Potential hallucination/imprecision: Sum of items (0.00) + tax (1.79) does not match Total (14.89)."
+  ]
+}
